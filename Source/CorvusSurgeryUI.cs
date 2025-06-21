@@ -5,6 +5,7 @@ using HarmonyLib;
 using RimWorld;
 using UnityEngine;
 using Verse;
+using System.Reflection;
 
 namespace CorvusSurgeryUI
 {
@@ -15,8 +16,201 @@ namespace CorvusSurgeryUI
         {
             var harmony = new Harmony("corvus.surgery.ui");
             harmony.PatchAll();
-            Log.Message("Corvus Surgery UI: Enhanced medical interface loaded successfully");
-            Log.Message("Corvus Surgery UI: Harmony patches applied");
+            
+            Log.Message("Corvus Surgery UI: Initialized with Harmony patches");
+        }
+        
+        // Method to clear caches - calls the method in Dialog class
+        public static void ClearCaches()
+        {
+            Dialog_CorvusSurgeryPlanner.ClearStaticCaches();
+        }
+    }
+
+    // Patch to ensure our GameComponent gets added
+    [HarmonyPatch(typeof(Game), "InitNewGame")]
+    public static class Game_InitNewGame_Patch
+    {
+        [HarmonyPostfix]
+        public static void Postfix(Game __instance)
+        {
+            if (__instance.components.OfType<CorvusSurgeryGameComp>().Any()) return;
+            
+            __instance.components.Add(new CorvusSurgeryGameComp(__instance));
+            Log.Message("Corvus Surgery UI: GameComponent added to new game");
+        }
+    }
+    
+    [HarmonyPatch(typeof(Game), "LoadGame")]
+    public static class Game_LoadGame_Patch
+    {
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            var game = Current.Game;
+            if (game?.components?.OfType<CorvusSurgeryGameComp>().Any() != true)
+            {
+                game?.components?.Add(new CorvusSurgeryGameComp(game));
+                Log.Message("Corvus Surgery UI: GameComponent added to loaded game");
+            }
+        }
+    }
+
+    // Game state manager for global surgery caching
+    public class CorvusSurgeryGameComp : GameComponent
+    {
+        private static List<RecipeDef> availableRecipesCache = new List<RecipeDef>();
+        private static bool globalCacheBuilt = false;
+        private static int lastResearchHash = 0;
+        
+        public CorvusSurgeryGameComp(Game game) : base() { }
+        
+        public override void GameComponentTick()
+        {
+            // Check every 5 seconds if research has changed
+            if (Find.TickManager.TicksGame % 300 == 0)
+            {
+                CheckAndUpdateGlobalCache();
+            }
+        }
+        
+        public override void LoadedGame()
+        {
+            BuildGlobalSurgeryCache();
+        }
+        
+        public override void StartedNewGame()
+        {
+            BuildGlobalSurgeryCache();
+        }
+        
+        private void CheckAndUpdateGlobalCache()
+        {
+            var currentResearchHash = GetResearchHash();
+            if (currentResearchHash != lastResearchHash)
+            {
+                Log.Message("Corvus Surgery UI: Research changed, rebuilding global cache");
+                BuildGlobalSurgeryCache();
+            }
+        }
+        
+        private static int GetResearchHash()
+        {
+            // Create a hash based on completed research
+            int hash = 0;
+            foreach (var research in DefDatabase<ResearchProjectDef>.AllDefs)
+            {
+                if (research.IsFinished)
+                {
+                    hash ^= research.GetHashCode();
+                }
+            }
+            return hash;
+        }
+        
+        public static void BuildGlobalSurgeryCache()
+        {
+            availableRecipesCache.Clear();
+            
+            // Instead of trying to identify medical recipes ourselves, 
+            // let's use RimWorld's built-in filtering for a sample human pawn
+            var humanDef = ThingDefOf.Human;
+            if (humanDef?.AllRecipes != null)
+            {
+                var potentialRecipes = humanDef.AllRecipes
+                    .Where(r => IsPotentiallyMedical(r))
+                    .ToList();
+                
+                Log.Message($"Corvus Surgery UI: Processing {potentialRecipes.Count} potentially medical recipes from human def (filtered from {DefDatabase<RecipeDef>.AllDefs.Count()} total)");
+                
+                // Log some examples of what we're processing
+                var examples = potentialRecipes.Take(5);
+                foreach (var example in examples)
+                {
+                    Log.Message($"Corvus Surgery UI: Processing recipe '{example.LabelCap}' (worker: {example.workerClass?.Name})");
+                }
+                
+                int filteredCount = 0;
+                foreach (var recipe in potentialRecipes)
+                {
+                    // Check research prerequisites
+                    bool hasResearch = true;
+                    
+                    if (recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished)
+                    {
+                        hasResearch = false;
+                    }
+                    
+                    if (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any())
+                    {
+                        hasResearch = recipe.researchPrerequisites.All(prereq => prereq.IsFinished);
+                    }
+                    
+                    if (hasResearch)
+                    {
+                        availableRecipesCache.Add(recipe);
+                    }
+                    else
+                    {
+                        filteredCount++;
+                    }
+                }
+                
+                globalCacheBuilt = true;
+                lastResearchHash = GetResearchHash();
+                
+                Log.Message($"Corvus Surgery UI: Global cache built with {availableRecipesCache.Count} available recipes ({filteredCount} filtered out by research)");
+                
+                // Log some examples of what was filtered
+                if (filteredCount > 0)
+                {
+                    var filteredExamples = potentialRecipes.Where(r => !availableRecipesCache.Contains(r)).Take(3);
+                    foreach (var example in filteredExamples)
+                    {
+                        var missingResearch = example.researchPrerequisite?.LabelCap ?? "Multiple prerequisites";
+                        Log.Message($"Corvus Surgery UI: Filtered out '{example.LabelCap}' (needs: {missingResearch})");
+                    }
+                }
+            }
+        }
+        
+        private static bool IsPotentiallyMedical(RecipeDef recipe)
+        {
+            // Ultra-conservative filtering - only the most obvious medical recipes
+            
+            // Only include recipes with very specific medical worker classes
+            if (recipe.workerClass != null)
+            {
+                var workerName = recipe.workerClass.Name;
+                if (workerName == "Recipe_Surgery" || 
+                    workerName == "Recipe_InstallArtificialBodyPart" ||
+                    workerName == "Recipe_InstallImplant" ||
+                    workerName == "Recipe_RemoveBodyPart" ||
+                    workerName == "Recipe_RemoveHediff" ||
+                    workerName == "Recipe_AddHediff")
+                {
+                    return true;
+                }
+            }
+            
+            // Only include if it explicitly targets body parts AND adds/removes hediffs
+            if ((recipe.appliedOnFixedBodyParts?.Any() == true || recipe.appliedOnFixedBodyPartGroups?.Any() == true) &&
+                (recipe.addsHediff != null || recipe.removesHediff != null))
+            {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        public static List<RecipeDef> GetAvailableRecipes()
+        {
+            if (!globalCacheBuilt)
+            {
+                BuildGlobalSurgeryCache();
+            }
+            
+            return availableRecipesCache;
         }
     }
 
@@ -29,23 +223,29 @@ namespace CorvusSurgeryUI
         {
             try
             {
-                if (pawn == null) return;
+                if (pawn == null || thingForMedBills == null) return;
                 
                 // Only show for pawns that can have surgery
                 bool canHaveSurgery = pawn.RaceProps.Humanlike || (pawn.RaceProps.Animal && pawn.health?.hediffSet != null);
                 if (!canHaveSurgery) return;
-                
-                // Create the Surgery Planner button positioned within the operations tab area
-                var buttonRect = new Rect(leftRect.x + 10f, curY + 35f, 150f, 25f);
-                
-                if (Widgets.ButtonText(buttonRect, "Surgery Planner"))
+
+                // Position the "Plan" button to the right of the vanilla "Add Bill" button
+                float addBillButtonX = leftRect.x - 9f; // From decompiled code analysis
+                float addBillButtonWidth = 150f;
+                float buttonSpacing = 5f;
+                float planButtonWidth = 60f; 
+                float buttonHeight = 29f; // Match vanilla button height
+
+                var planButtonRect = new Rect(addBillButtonX + addBillButtonWidth + buttonSpacing, curY, planButtonWidth, buttonHeight);
+
+                if (Widgets.ButtonText(planButtonRect, "Plan"))
                 {
-                    var dialog = new Dialog_CorvusSurgeryPlanner(pawn);
+                    var dialog = new Dialog_CorvusSurgeryPlanner(pawn, thingForMedBills);
                     Find.WindowStack.Add(dialog);
                 }
                 
                 // Add tooltip
-                TooltipHandler.TipRegion(buttonRect, "Open enhanced surgery planning interface with filtering and mod compatibility");
+                TooltipHandler.TipRegion(planButtonRect, "Open enhanced surgery planning interface with filtering and mod compatibility");
             }
             catch (Exception ex)
             {
@@ -63,15 +263,32 @@ namespace CorvusSurgeryUI
         private SurgeryCategory selectedCategory = SurgeryCategory.All;
         private bool showOnlyAvailable = false;
         private bool showOnlyQueueable = true;
-        private List<SurgeryOptionCached> cachedSurgeries;
+        private string selectedModFilter = "All";
+        private List<string> availableMods;
+        
+        private List<SurgeryOptionCached> allPawnSurgeries; // Master list, built once
+        private List<SurgeryOptionCached> filteredSurgeries; // The list that gets displayed
+        private Thing thingForMedBills;
 
-        public Dialog_CorvusSurgeryPlanner(Pawn pawn)
+        // Performance optimization - static caches
+        private static Dictionary<RecipeDef, SurgeryCategory> recipeCategoryCache = new Dictionary<RecipeDef, SurgeryCategory>();
+        private static Dictionary<RecipeDef, bool> nonTargetedCache = new Dictionary<RecipeDef, bool>();
+        private static bool cacheInitialized = false;
+
+        public Dialog_CorvusSurgeryPlanner(Pawn pawn, Thing thingForMedBills)
         {
             this.pawn = pawn;
+            this.thingForMedBills = thingForMedBills;
             this.forcePause = true;
             this.doCloseX = true;
             this.absorbInputAroundWindow = true;
-            RefreshSurgeryCache();
+            
+            // Initialize static caches if needed
+            InitializeStaticCaches();
+            
+            BuildFullSurgeryList();
+            PopulateAvailableMods();
+            ApplyFilters();
         }
 
         public override Vector2 InitialSize => new Vector2(800f, 600f);
@@ -86,8 +303,8 @@ namespace CorvusSurgeryUI
             // Title
             Text.Font = GameFont.Medium;
             var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            var surgeryCount = cachedSurgeries?.Count ?? 0;
-            Widgets.Label(titleRect, $"Surgery Planner - {pawn.LabelShort} ({surgeryCount} surgeries available)");
+            var surgeryCount = filteredSurgeries?.Count ?? 0;
+            Widgets.Label(titleRect, $"Surgery Planner - {pawn.LabelShort} ({surgeryCount} surgeries found)");
             Text.Font = GameFont.Small;
             
             // Subtitle
@@ -120,7 +337,7 @@ namespace CorvusSurgeryUI
             if (newFilter != searchFilter)
             {
                 searchFilter = newFilter;
-                RefreshSurgeryCache();
+                ApplyFilters();
             }
 
             // Category filter (top row, continued)
@@ -133,45 +350,44 @@ namespace CorvusSurgeryUI
                 List<FloatMenuOption> options = new List<FloatMenuOption>();
                 foreach (SurgeryCategory category in Enum.GetValues(typeof(SurgeryCategory)))
                 {
-                    var count = cachedSurgeries?.Count(s => category == SurgeryCategory.All || s.Category == category) ?? 0;
+                    var count = allPawnSurgeries?.Count(s => category == SurgeryCategory.All || s.Category == category) ?? 0;
                     options.Add(new FloatMenuOption($"{category} ({count})", () => {
                         selectedCategory = category;
-                        RefreshSurgeryCache();
+                        ApplyFilters();
                     }));
                 }
                 Find.WindowStack.Add(new FloatMenu(options));
             }
 
-            // Mod source filter (top row, continued)
-            Rect modLabelRect = new Rect(categoryRect.xMax + 15f, currentY, 70f, 20f);
-            Widgets.Label(modLabelRect, "Show source:");
+            // Mod source filter
+            Rect modLabelRect = new Rect(categoryRect.xMax + 15f, currentY, 40f, 20f);
+            Widgets.Label(modLabelRect, "Mod:");
             
-            // Second row - Toggle filters
-            currentY += 30f;
-            Rect toggleRect1 = new Rect(rect.x + 5f, currentY, 180f, 25f);
-            Widgets.CheckboxLabeled(toggleRect1, "Only available now", ref showOnlyAvailable);
-            if (GUI.changed)
+            Rect modButtonRect = new Rect(modLabelRect.xMax + 5f, currentY, 150f, 25f);
+            if (Widgets.ButtonText(modButtonRect, selectedModFilter))
             {
-                RefreshSurgeryCache();
-                GUI.changed = false;
+                List<FloatMenuOption> options = new List<FloatMenuOption>();
+                foreach (string modName in availableMods)
+                {
+                    int count;
+                    if (modName == "All")
+                    {
+                        count = allPawnSurgeries.Count;
+                    }
+                    else
+                    {
+                        count = allPawnSurgeries.Count(s => (s.Recipe?.modContentPack?.Name ?? "Core") == modName);
+                    }
+                    
+                    options.Add(new FloatMenuOption($"{modName} ({count})", () => {
+                        selectedModFilter = modName;
+                        ApplyFilters();
+                    }));
+                }
+                Find.WindowStack.Add(new FloatMenu(options));
             }
 
-            Rect toggleRect2 = new Rect(toggleRect1.xMax + 10f, currentY, 180f, 25f);
-            Widgets.CheckboxLabeled(toggleRect2, "Only queueable", ref showOnlyQueueable);
-            if (GUI.changed)
-            {
-                RefreshSurgeryCache();
-                GUI.changed = false;
-            }
-            
-            // Show mod compatibility info
-            Rect modInfoRect = new Rect(toggleRect2.xMax + 10f, currentY, 200f, 25f);
-            var modCount = GetUniqueModCount();
-            GUI.color = Color.cyan;
-            Widgets.Label(modInfoRect, $"From {modCount} mod(s)");
-            GUI.color = Color.white;
-
-            // Third row - Quick filters
+            // Second row - Quick Filters
             currentY += 30f;
             var quickFilterY = currentY;
             var quickFilterX = rect.x + 5f;
@@ -182,40 +398,50 @@ namespace CorvusSurgeryUI
             {
                 searchFilter = "";
                 selectedCategory = SurgeryCategory.All;
+                selectedModFilter = "All";
                 showOnlyAvailable = false;
                 showOnlyQueueable = false;
-                RefreshSurgeryCache();
+                ApplyFilters();
             }
             
             if (Widgets.ButtonText(new Rect(quickFilterX + quickFilterSpacing, quickFilterY, quickFilterWidth, 20f), "Available"))
             {
                 showOnlyAvailable = true;
                 showOnlyQueueable = true;
-                RefreshSurgeryCache();
+                ApplyFilters();
             }
             
             if (Widgets.ButtonText(new Rect(quickFilterX + quickFilterSpacing * 2, quickFilterY, quickFilterWidth, 20f), "Implants"))
             {
                 selectedCategory = SurgeryCategory.Implants;
-                RefreshSurgeryCache();
+                ApplyFilters();
             }
         }
         
-        private int GetUniqueModCount()
+        private void PopulateAvailableMods()
         {
-            if (cachedSurgeries == null) return 0;
-            return cachedSurgeries.Select(s => s.Recipe?.modContentPack?.Name ?? "Core").Distinct().Count();
+            if (allPawnSurgeries == null)
+            {
+                availableMods = new List<string> { "All" };
+                return;
+            }
+            availableMods = allPawnSurgeries
+                .Select(s => s.Recipe?.modContentPack?.Name ?? "Core")
+                .Distinct()
+                .OrderBy(m => m)
+                .ToList();
+            availableMods.Insert(0, "All");
         }
 
         private void DrawSurgeryList(Rect rect)
         {
             Widgets.DrawBoxSolid(rect, Color.black * 0.1f);
             
-            var viewRect = new Rect(0f, 0f, rect.width - 20f, cachedSurgeries.Count * 60f);
+            var viewRect = new Rect(0f, 0f, rect.width - 20f, filteredSurgeries.Count * 60f);
             Widgets.BeginScrollView(rect, ref scrollPosition, viewRect);
 
             float y = 0f;
-            foreach (var surgery in cachedSurgeries)
+            foreach (var surgery in filteredSurgeries)
             {
                 DrawSurgeryOption(new Rect(5f, y, viewRect.width - 10f, 55f), surgery);
                 y += 60f;
@@ -226,10 +452,16 @@ namespace CorvusSurgeryUI
 
         private void DrawSurgeryOption(Rect rect, SurgeryOptionCached surgery)
         {
+            // Lazy load expensive properties only when displaying
+            if (string.IsNullOrEmpty(surgery.Requirements))
+            {
+                surgery.Requirements = GetRequirements(surgery.Recipe);
+                surgery.ImplantWarning = GetImplantWarning(surgery.Recipe, surgery.BodyPart);
+                surgery.Tooltip = GetDetailedTooltip(surgery.Recipe, surgery.BodyPart);
+            }
+            
             // Background with better visual feedback
-            Color bgColor = surgery.IsAvailable ? 
-                (surgery.IsQueueable ? Color.green * 0.1f : Color.yellow * 0.1f) : 
-                Color.red * 0.1f;
+            Color bgColor = Color.black * 0.1f;
             Widgets.DrawBoxSolid(rect, bgColor);
             
             // Outline for better definition
@@ -304,10 +536,10 @@ namespace CorvusSurgeryUI
 
             // Add to queue button
             Rect buttonRect = new Rect(rightColumnX, rect.yMax - 28f, rightColumnWidth - 5f, 25f);
-            bool canQueue = surgery.IsAvailable && surgery.IsQueueable;
+            bool canQueue = true; // All options from vanilla are considered available and queueable
             
             GUI.enabled = canQueue;
-            var buttonText = canQueue ? "Queue" : (surgery.IsAvailable ? "Cannot Queue" : "Unavailable");
+            var buttonText = canQueue ? "Queue" : "Unavailable";
             if (Widgets.ButtonText(buttonRect, buttonText) && canQueue)
             {
                 QueueSurgery(surgery.Recipe, surgery.BodyPart);
@@ -316,13 +548,13 @@ namespace CorvusSurgeryUI
 
             // Status indicator
             Rect statusRect = new Rect(rect.x + 2f, rect.y + 2f, 8f, 8f);
-            var statusColor = surgery.IsAvailable ? (surgery.IsQueueable ? Color.green : Color.yellow) : Color.red;
+            var statusColor = canQueue ? Color.green : Color.red;
             Widgets.DrawBoxSolid(statusRect, statusColor);
 
             // Tooltip with comprehensive info
             if (Mouse.IsOver(rect))
             {
-                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {(surgery.IsAvailable ? "Available" : "Not Available")}\nQueueable: {(surgery.IsQueueable ? "Yes" : "No")}";
+                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {(canQueue ? "Available" : "Not Available")}";
                 TooltipHandler.TipRegion(rect, tooltipText);
             }
         }
@@ -340,96 +572,120 @@ namespace CorvusSurgeryUI
             }
         }
 
-        private void RefreshSurgeryCache()
+        private void BuildFullSurgeryList()
         {
-            cachedSurgeries = new List<SurgeryOptionCached>();
-            
-            // Get all available surgeries for this pawn
-            var surgeryOptions = GetAllSurgeryOptions();
-            
-            foreach (var option in surgeryOptions)
+            allPawnSurgeries = new List<SurgeryOptionCached>();
+            var generateSurgeryOptionMethod = typeof(HealthCardUtility).GetMethod("GenerateSurgeryOption", BindingFlags.NonPublic | BindingFlags.Static);
+            if (generateSurgeryOptionMethod == null)
             {
-                if (PassesFilters(option))
-                {
-                    cachedSurgeries.Add(option);
-                }
+                Log.Error("Corvus Surgery UI: Could not find vanilla method 'GenerateSurgeryOption' via reflection. Mod will not function.");
+                return;
             }
 
-            // Sort by category, then by name
-            cachedSurgeries = cachedSurgeries.OrderBy(s => s.Category).ThenBy(s => s.Label).ToList();
-        }
-
-        private List<SurgeryOptionCached> GetAllSurgeryOptions()
-        {
-            var options = new List<SurgeryOptionCached>();
+            var recipes = thingForMedBills.def.AllRecipes;
+            int index = 0;
             
-            // Get all recipes available for this pawn
-            var allRecipes = pawn.def.AllRecipes.ToList();
-            
-            // First, handle non-targeted surgeries (like drug administration)
-            var nonTargetedRecipes = allRecipes
-                .Where(r => IsNonTargetedSurgery(r))
-                .Where(r => r.AvailableOnNow(pawn))
-                .ToList();
+            foreach (var recipe in recipes)
+            {
+                if (!recipe.AvailableNow) continue;
                 
-            foreach (var recipe in nonTargetedRecipes)
-            {
-                var cached = new SurgeryOptionCached
-                {
-                    Label = recipe.LabelCap,
-                    Description = recipe.description ?? "",
-                    Category = CategorizeRecipe(recipe),
-                    IsAvailable = CanPerformSurgery(recipe, null),
-                    IsQueueable = CanQueueSurgery(recipe, null),
-                    Requirements = GetRequirements(recipe),
-                    ImplantWarning = "",
-                    Tooltip = GetDetailedTooltip(recipe, null),
-                    Action = () => QueueSurgery(recipe, null),
-                    Recipe = recipe,
-                    BodyPart = null
-                };
-                options.Add(cached);
-            }
-            
-            // Then handle targeted surgeries for specific body parts
-            foreach (var part in pawn.RaceProps.body.AllParts)
-            {
-                // Get recipes that are specifically available for this body part (excluding non-targeted ones)
-                var availableRecipes = allRecipes
-                    .Where(r => !IsNonTargetedSurgery(r))
-                    .Where(r => r.AvailableOnNow(pawn, part))
-                    .Where(r => IsRecipeValidForBodyPart(r, part))
-                    .ToList();
+                var report = recipe.Worker.AvailableReport(pawn);
+                if (!report.Accepted && report.Reason.NullOrEmpty()) continue;
 
-                foreach (var recipe in availableRecipes)
+                var missingIngredients = recipe.PotentiallyMissingIngredients(null, thingForMedBills.MapHeld);
+
+                if (recipe.targetsBodyPart)
                 {
-                    var cached = new SurgeryOptionCached
+                    foreach (var part in recipe.Worker.GetPartsToApplyOn(pawn, recipe))
                     {
-                        Label = recipe.LabelCap,
-                        Description = recipe.description ?? "",
-                        Category = CategorizeRecipe(recipe),
-                        IsAvailable = CanPerformSurgery(recipe, part),
-                        IsQueueable = CanQueueSurgery(recipe, part),
-                        Requirements = GetRequirements(recipe),
-                        ImplantWarning = GetImplantWarning(recipe, part),
-                        Tooltip = GetDetailedTooltip(recipe, part),
-                        Action = () => QueueSurgery(recipe, part),
-                        Recipe = recipe,
-                        BodyPart = part
-                    };
-                    options.Add(cached);
+                        if (recipe.AvailableOnNow(pawn, part))
+                        {
+                            try
+                            {
+                                var parameters = new object[] { pawn, thingForMedBills, recipe, missingIngredients, report, index, part };
+                                var option = (FloatMenuOption)generateSurgeryOptionMethod.Invoke(null, parameters);
+                                AddSurgeryOption(option, recipe, part);
+                                index++;
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warning($"Corvus Surgery UI: Error generating targeted surgery option for '{recipe.defName}': {ex.InnerException?.Message ?? ex.Message}");
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                     if (!pawn.health.hediffSet.HasHediff(recipe.addsHediff))
+                     {
+                        try
+                        {
+                            var parameters = new object[] { pawn, thingForMedBills, recipe, missingIngredients, report, index, null };
+                            var option = (FloatMenuOption)generateSurgeryOptionMethod.Invoke(null, parameters);
+                            AddSurgeryOption(option, recipe, null);
+                            index++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning($"Corvus Surgery UI: Error generating non-targeted surgery option for '{recipe.defName}': {ex.InnerException?.Message ?? ex.Message}");
+                        }
+                     }
                 }
             }
-
-            return options;
+            
+            Log.Message($"Corvus Surgery UI: Built master list with {allPawnSurgeries.Count} surgeries for {pawn.Name.ToStringShort}.");
+        }
+        
+        private void ApplyFilters()
+        {
+            if (allPawnSurgeries == null) return;
+            
+            filteredSurgeries = allPawnSurgeries.Where(PassesBasicFilters).OrderBy(s => s.Label).ToList();
+            Log.Message($"Corvus Surgery UI: Applied filters, {filteredSurgeries.Count} surgeries visible.");
         }
 
-        private bool PassesFilters(SurgeryOptionCached surgery)
+        private void AddSurgeryOption(FloatMenuOption option, RecipeDef recipe, BodyPartRecord part)
+        {
+            if (option == null || option.Disabled || option.Label.NullOrEmpty() || option.action == null)
+            {
+                return;
+            }
+            
+            allPawnSurgeries.Add(new SurgeryOptionCached
+            {
+                Label = option.Label,
+                Description = recipe.description,
+                Category = CategorizeRecipe(recipe),
+                IsAvailable = true, // If we got an option, it's available
+                IsQueueable = true, // And queueable
+                Action = option.action,
+                Recipe = recipe,
+                BodyPart = part
+            });
+        }
+
+        private SurgeryCategory CategorizeRecipe(RecipeDef recipe)
+        {
+            if (recipe == null) return SurgeryCategory.Medical;
+            return recipeCategoryCache.GetValueOrDefault(recipe, SurgeryCategory.Medical);
+        }
+        
+        private void QueueSurgery(RecipeDef recipe, BodyPartRecord part)
+        {
+            var bill = recipe.MakeNewBill();
+            if (part != null && bill is Bill_Medical medicalBill)
+            {
+                medicalBill.Part = part;
+            }
+            pawn.BillStack.AddBill(bill);
+        }
+
+        private bool PassesBasicFilters(SurgeryOptionCached surgery)
         {
             // Search filter
             if (!string.IsNullOrEmpty(searchFilter) && 
                 !surgery.Label.ToLower().Contains(searchFilter.ToLower()) &&
-                !surgery.Description.ToLower().Contains(searchFilter.ToLower()))
+                (surgery.Recipe?.description?.ToLower().Contains(searchFilter.ToLower()) == false))
             {
                 return false;
             }
@@ -440,124 +696,23 @@ namespace CorvusSurgeryUI
                 return false;
             }
 
-            // Availability filter
-            if (showOnlyAvailable && !surgery.IsAvailable)
+            // Mod filter
+            if (selectedModFilter != "All" && (surgery.Recipe?.modContentPack?.Name ?? "Core") != selectedModFilter)
             {
                 return false;
             }
 
-            // Queueable filter
-            if (showOnlyQueueable && !surgery.IsQueueable)
+            // This check is now driven by the "Available" and "Clear All" buttons.
+            if (showOnlyAvailable)
             {
-                return false;
+                 var missingIngredients = surgery.Recipe.PotentiallyMissingIngredients(null, pawn.MapHeld);
+                 if (missingIngredients != null && missingIngredients.Any())
+                 {
+                     return false;
+                 }
             }
 
             return true;
-        }
-
-        private SurgeryCategory CategorizeRecipe(RecipeDef recipe)
-        {
-            if (recipe.addsHediff != null)
-            {
-                if (recipe.addsHediff.addedPartProps != null)
-                    return SurgeryCategory.Prosthetics;
-                else
-                    return SurgeryCategory.Implants;
-            }
-            
-            if (recipe.removesHediff != null)
-                return SurgeryCategory.Removal;
-            
-            if (recipe.workerClass == typeof(Recipe_RemoveBodyPart))
-                return SurgeryCategory.Amputation;
-            
-            return SurgeryCategory.Medical;
-        }
-
-        private bool CanPerformSurgery(RecipeDef recipe, BodyPartRecord part)
-        {
-            // Check research prerequisites
-            if (recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished)
-            {
-                return false;
-            }
-
-            // Check if any of the research prerequisites are met
-            if (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any())
-            {
-                bool hasAllPrereqs = recipe.researchPrerequisites.All(prereq => prereq.IsFinished);
-                if (!hasAllPrereqs)
-                {
-                    return false;
-                }
-            }
-
-            // Check if we have the required ingredients/materials
-            if (recipe.ingredients != null && recipe.ingredients.Any())
-            {
-                foreach (var ingredient in recipe.ingredients)
-                {
-                    // Check if we have enough of this ingredient available in the colony
-                    var availableCount = 0;
-                    
-                    // Count available items in stockpiles, storage, etc.
-                    foreach (var thing in pawn.Map?.listerThings?.AllThings?.Where(t => ingredient.filter.Allows(t)) ?? Enumerable.Empty<Thing>())
-                    {
-                        availableCount += thing.stackCount;
-                    }
-                    
-                    // Check if we have enough
-                    if (availableCount < ingredient.GetBaseCount())
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            // Check facility requirements (like research bench, hospital bed, etc.)
-            if (recipe.requiredGiverWorkType != null)
-            {
-                // Check if we have colonists capable of doing this work type
-                bool hasCapablePawn = pawn.Map?.mapPawns?.FreeColonists?.Any(p => 
-                    !p.WorkTypeIsDisabled(recipe.requiredGiverWorkType) && 
-                    !p.Downed && 
-                    p.health.capacities.CapableOf(PawnCapacityDefOf.Manipulation)) ?? false;
-                    
-                if (!hasCapablePawn)
-                {
-                    return false;
-                }
-            }
-
-            // Check skill requirements
-            if (recipe.skillRequirements != null && recipe.skillRequirements.Any())
-            {
-                foreach (var skillReq in recipe.skillRequirements)
-                {
-                    // Check if any colonist has the required skill level
-                    bool hasSkillfulPawn = pawn.Map?.mapPawns?.FreeColonists?.Any(p => 
-                        p.skills?.GetSkill(skillReq.skill)?.Level >= skillReq.minLevel &&
-                        !p.Downed &&
-                        !p.WorkTypeIsDisabled(recipe.requiredGiverWorkType ?? WorkTypeDefOf.Doctor)) ?? false;
-                        
-                    if (!hasSkillfulPawn)
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            // Check if the basic recipe is available
-            if (part != null)
-                return recipe.AvailableOnNow(pawn, part);
-            else
-                return recipe.AvailableOnNow(pawn);
-        }
-
-        private bool CanQueueSurgery(RecipeDef recipe, BodyPartRecord part)
-        {
-            // Additional checks for whether this can be queued
-            return true; // Simplified for example
         }
 
         private string GetRequirements(RecipeDef recipe)
@@ -635,103 +790,71 @@ namespace CorvusSurgeryUI
             return $"{recipe.description}\n\nBody part: {part?.Label ?? "None"}\nSkill: {recipe.skillRequirements?.FirstOrDefault()?.skill.skillLabel ?? "None"}";
         }
 
-        private void QueueSurgery(RecipeDef recipe, BodyPartRecord part)
-        {
-            // Queue the surgery - this would integrate with the normal bill system
-            var bill = recipe.MakeNewBill();
-            if (part != null && bill is Bill_Medical medicalBill)
-            {
-                medicalBill.Part = part;
-            }
-            pawn.BillStack.AddBill(bill);
-        }
-
-        private bool IsRecipeValidForBodyPart(RecipeDef recipe, BodyPartRecord part)
-        {
-            // Check if the recipe has specific body part requirements
-            if (recipe.appliedOnFixedBodyParts != null && recipe.appliedOnFixedBodyParts.Any())
-            {
-                // Recipe specifies which body parts it can be applied to
-                return recipe.appliedOnFixedBodyParts.Contains(part.def);
-            }
-
-            // Check if the recipe has body part group requirements
-            if (recipe.appliedOnFixedBodyPartGroups != null && recipe.appliedOnFixedBodyPartGroups.Any())
-            {
-                // Recipe specifies which body part groups it can be applied to
-                return recipe.appliedOnFixedBodyPartGroups.Any(group => part.groups.Contains(group));
-            }
-
-            // For recipes that add hediffs, check if the hediff makes sense for this body part
-            if (recipe.addsHediff != null)
-            {
-                // For implants and prosthetics, be more restrictive
-                if (recipe.workerClass?.Name?.Contains("InstallArtificial") == true ||
-                    recipe.workerClass?.Name?.Contains("InstallNatural") == true ||
-                    recipe.defName.ToLower().Contains("install"))
-                {
-                    // This is an installation recipe, check if it's meant for this body part type
-                    var recipeName = recipe.defName.ToLower();
-                    var partName = part.def.defName.ToLower();
-                    
-                    // Basic body part matching
-                    if (recipeName.Contains("arm") && !partName.Contains("arm") && !partName.Contains("shoulder") && !partName.Contains("hand"))
-                        return false;
-                    if (recipeName.Contains("leg") && !partName.Contains("leg") && !partName.Contains("foot") && !partName.Contains("toe"))
-                        return false;
-                    if (recipeName.Contains("eye") && !partName.Contains("eye"))
-                        return false;
-                    if (recipeName.Contains("nose") && !partName.Contains("nose"))
-                        return false;
-                    if (recipeName.Contains("ear") && !partName.Contains("ear"))
-                        return false;
-                    if (recipeName.Contains("jaw") && !partName.Contains("jaw"))
-                        return false;
-                    if (recipeName.Contains("spine") && !partName.Contains("spine"))
-                        return false;
-                    if (recipeName.Contains("heart") && !partName.Contains("heart"))
-                        return false;
-                    if (recipeName.Contains("lung") && !partName.Contains("lung"))
-                        return false;
-                    if (recipeName.Contains("kidney") && !partName.Contains("kidney"))
-                        return false;
-                    if (recipeName.Contains("liver") && !partName.Contains("liver"))
-                        return false;
-                    if (recipeName.Contains("stomach") && !partName.Contains("stomach"))
-                        return false;
-                }
-            }
-
-            // For removal recipes, check if there's actually something to remove
-            if (recipe.removesHediff != null)
-            {
-                return pawn.health.hediffSet.GetFirstHediffOfDef(recipe.removesHediff) != null;
-            }
-
-            // Default to allowing the recipe if no specific restrictions found
-            return true;
-        }
-
         private bool IsNonTargetedSurgery(RecipeDef recipe)
         {
-            // Check if this is a drug administration or other non-targeted surgery
-            if (recipe.defName.ToLower().Contains("administer"))
-                return true;
+            return nonTargetedCache.GetValueOrDefault(recipe, false);
+        }
+
+        private static void InitializeStaticCaches()
+        {
+            if (cacheInitialized) return;
+            
+            // Cache recipe categories and non-targeted status for all recipes
+            var allRecipes = DefDatabase<RecipeDef>.AllDefs.ToList();
+            
+            foreach (var recipe in allRecipes)
+            {
+                if (!recipeCategoryCache.ContainsKey(recipe))
+                {
+                    recipeCategoryCache[recipe] = CategorizeRecipeStatic(recipe);
+                }
                 
-            // Check if the recipe doesn't target specific body parts
-            if (recipe.targetsBodyPart == false)
-                return true;
-                
-            // Check if it's a general treatment that doesn't require specific body parts
-            if (recipe.workerClass?.Name?.Contains("Administer") == true)
-                return true;
-                
-            // Check for other patterns that indicate non-targeted surgeries
-            var recipeName = recipe.defName.ToLower();
-            if (recipeName.Contains("treat") && !recipeName.Contains("install") && !recipeName.Contains("remove"))
-                return true;
-                
+                if (!nonTargetedCache.ContainsKey(recipe))
+                {
+                    nonTargetedCache[recipe] = IsNonTargetedSurgeryStatic(recipe);
+                }
+            }
+            
+            cacheInitialized = true;
+        }
+        
+        private static SurgeryCategory CategorizeRecipeStatic(RecipeDef recipe)
+        {
+            if (recipe.addsHediff != null)
+            {
+                if (recipe.addsHediff.addedPartProps != null)
+                    return SurgeryCategory.Prosthetics;
+                else
+                    return SurgeryCategory.Implants;
+            }
+            
+            if (recipe.removesHediff != null)
+                return SurgeryCategory.Removal;
+            
+            if (recipe.workerClass == typeof(Recipe_RemoveBodyPart))
+                return SurgeryCategory.Amputation;
+            
+            return SurgeryCategory.Medical;
+        }
+        
+        private static bool IsNonTargetedSurgeryStatic(RecipeDef recipe)
+        {
+            // Check if this is a non-targeted surgery (like drug administration)
+            if (recipe.targetsBodyPart == false) return true;
+            if (recipe.LabelCap.ToString().ToLower().Contains("administer")) return true;
+            if (recipe.workerClass?.Name?.Contains("Administer") == true) return true;
+            if (recipe.LabelCap.ToString().ToLower().Contains("tend")) return true;
+            
             return false;
+        }
+
+        public static void ClearStaticCaches()
+        {
+            recipeCategoryCache.Clear();
+            nonTargetedCache.Clear();
+            cacheInitialized = false;
+            
+            Log.Message("Corvus Surgery UI: Caches cleared and will be rebuilt");
         }
     }
 
