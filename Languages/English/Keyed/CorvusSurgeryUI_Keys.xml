@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <!-- Corvus Surgery UI Translation Keys -->
+  
+  <!-- UI Elements -->
+  <CorvusSurgery_MainTitle>Surgery Planner</CorvusSurgery_MainTitle>
+  <CorvusSurgery_SurgeryPlannerButton>Surgery Planner</CorvusSurgery_SurgeryPlannerButton>
+  <CorvusSurgery_SurgeryPlannerTooltip>Open enhanced surgery planning interface with filtering and mod compatibility</CorvusSurgery_SurgeryPlannerTooltip>
+  <CorvusSurgery_CompatibilityInfo>Compatible with all surgery mods - Filter and organize your surgical options</CorvusSurgery_CompatibilityInfo>
+  <CorvusSurgery_CloseButton>Close</CorvusSurgery_CloseButton>
+  
+  <!-- Filters -->
+  <CorvusSurgery_Search>Search:</CorvusSurgery_Search>
+  <CorvusSurgery_Category>Category:</CorvusSurgery_Category>
+  <CorvusSurgery_ShowSource>Show source:</CorvusSurgery_ShowSource>
+  <CorvusSurgery_OnlyAvailable>Only available now</CorvusSurgery_OnlyAvailable>
+  <CorvusSurgery_OnlyQueueable>Only queueable</CorvusSurgery_OnlyQueueable>
+  <CorvusSurgery_ClearAll>Clear All</CorvusSurgery_ClearAll>
+  <CorvusSurgery_Available>Available</CorvusSurgery_Available>
+  <CorvusSurgery_Implants>Implants</CorvusSurgery_Implants>
+  
+  <!-- Surgery Operations -->
+  <CorvusSurgery_AddToQueue>Add to Queue</CorvusSurgery_AddToQueue>
+  <CorvusSurgery_CannotQueue>Cannot Queue</CorvusSurgery_CannotQueue>
+  <CorvusSurgery_Unavailable>Unavailable</CorvusSurgery_Unavailable>
+  <CorvusSurgery_Refresh>Refresh</CorvusSurgery_Refresh>
+  <CorvusSurgery_ViewBills>View Bills</CorvusSurgery_ViewBills>
+  
+  <!-- Status Messages -->
+  <CorvusSurgery_SurgeryQueued>Added {0} to surgery queue</CorvusSurgery_SurgeryQueued>
+  <CorvusSurgery_UseBillsButton>Use the 'Bills' button in the Health tab to manage queued surgeries</CorvusSurgery_UseBillsButton>
+  <CorvusSurgery_FromMods>From {0} mod(s)</CorvusSurgery_FromMods>
+  <CorvusSurgery_Target>Target: {0}</CorvusSurgery_Target>
+  <CorvusSurgery_Replaces>Replaces {0}</CorvusSurgery_Replaces>
+  
+  <!-- Settings -->
+  <CorvusSurgery_SettingsTitle>Corvus Surgery UI Settings</CorvusSurgery_SettingsTitle>
+  <CorvusSurgery_EnableEnhancedUI>Enable Enhanced UI</CorvusSurgery_EnableEnhancedUI>
+  <CorvusSurgery_UIScaleLabel>UI Scale</CorvusSurgery_UIScaleLabel>
+</LanguageData> 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <Operation Class="PatchOperationReplace">
+    <xpath>Defs/RecipeDef[defName="RemoveBodyPart"]/jobString</xpath>
+    <value>
+      <jobString>removing {0}</jobString>
+    </value>
+  </Operation>
+  
+  <!-- Example patch to modify surgery descriptions -->
+  <Operation Class="PatchOperationReplace">
+    <xpath>Defs/RecipeDef[defName="RemoveBodyPart"]/description</xpath>
+    <value>
+      <description>Remove an organ or body part. Useful for removing damaged parts or harvesting organs.</description>
+    </value>
+  </Operation>
+</Patch> 
