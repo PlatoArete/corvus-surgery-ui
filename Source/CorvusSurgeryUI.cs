@@ -261,10 +261,12 @@ namespace CorvusSurgeryUI
         private Vector2 scrollPosition;
         private string searchFilter = "";
         private SurgeryCategory selectedCategory = SurgeryCategory.All;
-        private bool showOnlyAvailable = false;
+        private bool showOnlyAvailable = true;
         private bool showOnlyQueueable = true;
         private string selectedModFilter = "All";
         private List<string> availableMods;
+        private BodyPartRecord selectedTargetPart = null;
+        private List<BodyPartRecord> availableTargets;
         
         private List<SurgeryOptionCached> allPawnSurgeries; // Master list, built once
         private List<SurgeryOptionCached> filteredSurgeries; // The list that gets displayed
@@ -288,10 +290,11 @@ namespace CorvusSurgeryUI
             
             BuildFullSurgeryList();
             PopulateAvailableMods();
+            PopulateAvailableTargets();
             ApplyFilters();
         }
 
-        public override Vector2 InitialSize => new Vector2(800f, 600f);
+        public override Vector2 InitialSize => new Vector2(950f, 600f);
 
         protected override void SetInitialSizeAndPosition()
         {
@@ -387,31 +390,64 @@ namespace CorvusSurgeryUI
                 Find.WindowStack.Add(new FloatMenu(options));
             }
 
+            // Target Body Part filter
+            Rect targetLabelRect = new Rect(modButtonRect.xMax + 15f, currentY, 50f, 20f);
+            Widgets.Label(targetLabelRect, "Target:");
+            
+            Rect targetButtonRect = new Rect(targetLabelRect.xMax + 5f, currentY, 150f, 25f);
+            string targetButtonLabel = selectedTargetPart?.LabelCap ?? "All";
+            if (Widgets.ButtonText(targetButtonRect, targetButtonLabel))
+            {
+                List<FloatMenuOption> options = new List<FloatMenuOption>();
+                options.Add(new FloatMenuOption("All", () => {
+                    selectedTargetPart = null;
+                    ApplyFilters();
+                }));
+                
+                foreach (var target in availableTargets)
+                {
+                    options.Add(new FloatMenuOption(target.LabelCap, () => {
+                        selectedTargetPart = target;
+                        ApplyFilters();
+                    }));
+                }
+                Find.WindowStack.Add(new FloatMenu(options));
+            }
+
             // Second row - Quick Filters
             currentY += 30f;
             var quickFilterY = currentY;
             var quickFilterX = rect.x + 5f;
-            var quickFilterWidth = 80f;
-            var quickFilterSpacing = 85f;
-            
-            if (Widgets.ButtonText(new Rect(quickFilterX, quickFilterY, quickFilterWidth, 20f), "Clear All"))
+            var buttonHeight = 20f;
+            var buttonSpacing = 5f;
+
+            // Clear All button
+            var clearButtonWidth = 80f;
+            var clearButtonRect = new Rect(quickFilterX, quickFilterY, clearButtonWidth, buttonHeight);
+            if (Widgets.ButtonText(clearButtonRect, "Clear All"))
             {
                 searchFilter = "";
                 selectedCategory = SurgeryCategory.All;
                 selectedModFilter = "All";
-                showOnlyAvailable = false;
-                showOnlyQueueable = false;
+                showOnlyAvailable = false; // Clearing shows all
+                selectedTargetPart = null;
                 ApplyFilters();
             }
             
-            if (Widgets.ButtonText(new Rect(quickFilterX + quickFilterSpacing, quickFilterY, quickFilterWidth, 20f), "Available"))
+            // Show/Hide available toggle button
+            var toggleButtonWidth = 140f;
+            var toggleButtonRect = new Rect(clearButtonRect.xMax + buttonSpacing, quickFilterY, toggleButtonWidth, buttonHeight);
+            string toggleButtonText = showOnlyAvailable ? "Show All" : "Show Available Only";
+            if (Widgets.ButtonText(toggleButtonRect, toggleButtonText))
             {
-                showOnlyAvailable = true;
-                showOnlyQueueable = true;
+                showOnlyAvailable = !showOnlyAvailable;
                 ApplyFilters();
             }
-            
-            if (Widgets.ButtonText(new Rect(quickFilterX + quickFilterSpacing * 2, quickFilterY, quickFilterWidth, 20f), "Implants"))
+
+            // Implants quick-filter button
+            var implantsButtonWidth = 80f;
+            var implantsButtonRect = new Rect(toggleButtonRect.xMax + buttonSpacing, quickFilterY, implantsButtonWidth, buttonHeight);
+            if (Widgets.ButtonText(implantsButtonRect, "Implants"))
             {
                 selectedCategory = SurgeryCategory.Implants;
                 ApplyFilters();
@@ -433,18 +469,35 @@ namespace CorvusSurgeryUI
             availableMods.Insert(0, "All");
         }
 
+        private void PopulateAvailableTargets()
+        {
+            if (allPawnSurgeries == null)
+            {
+                availableTargets = new List<BodyPartRecord>();
+                return;
+            }
+            availableTargets = allPawnSurgeries
+                .Where(s => s.BodyPart != null)
+                .Select(s => s.BodyPart)
+                .Distinct()
+                .OrderBy(bp => bp.LabelCap.ToString())
+                .ToList();
+        }
+
         private void DrawSurgeryList(Rect rect)
         {
             Widgets.DrawBoxSolid(rect, Color.black * 0.1f);
             
-            var viewRect = new Rect(0f, 0f, rect.width - 20f, filteredSurgeries.Count * 60f);
+            var rowHeight = 70f;
+            var rowSpacing = 5f;
+            var viewRect = new Rect(0f, 0f, rect.width - 20f, (rowHeight + rowSpacing) * filteredSurgeries.Count);
             Widgets.BeginScrollView(rect, ref scrollPosition, viewRect);
 
             float y = 0f;
             foreach (var surgery in filteredSurgeries)
             {
-                DrawSurgeryOption(new Rect(5f, y, viewRect.width - 10f, 55f), surgery);
-                y += 60f;
+                DrawSurgeryOption(new Rect(5f, y, viewRect.width - 10f, rowHeight), surgery);
+                y += rowHeight + rowSpacing;
             }
 
             Widgets.EndScrollView();
@@ -456,7 +509,9 @@ namespace CorvusSurgeryUI
             if (string.IsNullOrEmpty(surgery.Requirements))
             {
                 surgery.Requirements = GetRequirements(surgery.Recipe);
-                surgery.ImplantWarning = GetImplantWarning(surgery.Recipe, surgery.BodyPart);
+                var (warningText, warningColor) = GetImplantWarning(surgery.Recipe, surgery.BodyPart);
+                surgery.ImplantWarning = warningText;
+                surgery.ImplantWarningColor = warningColor;
                 surgery.Tooltip = GetDetailedTooltip(surgery.Recipe, surgery.BodyPart);
             }
             
@@ -470,15 +525,24 @@ namespace CorvusSurgeryUI
             // Left column - Surgery info
             var leftColumnWidth = rect.width * 0.45f;
             
-            // Surgery name with mod badge
-            Rect nameRect = new Rect(rect.x + 5f, rect.y + 2f, leftColumnWidth - 10f, 20f);
+            // Surgery name
+            Rect nameRect = new Rect(rect.x + 15f, rect.y + 5f, leftColumnWidth - 20f, 20f);
             Widgets.Label(nameRect, surgery.Label);
+
+            // Body part info
+            if (surgery.BodyPart != null)
+            {
+                Rect bodyPartRect = new Rect(nameRect.x, nameRect.yMax + 2f, leftColumnWidth - 10f, 22f);
+                GUI.color = Color.gray;
+                Widgets.Label(bodyPartRect, $"Target: {surgery.BodyPart.LabelCap}");
+                GUI.color = Color.white;
+            }
 
             // Mod source badge
             var modName = surgery.Recipe?.modContentPack?.Name ?? "Core";
             if (modName != "Core")
             {
-                Rect modBadgeRect = new Rect(nameRect.x, nameRect.yMax, leftColumnWidth - 10f, 15f);
+                Rect modBadgeRect = new Rect(nameRect.x, rect.yMax - 18f, leftColumnWidth - 10f, 15f);
                 GUI.color = Color.cyan;
                 Text.Font = GameFont.Tiny;
                 Widgets.Label(modBadgeRect, $"[{modName}]");
@@ -486,38 +550,19 @@ namespace CorvusSurgeryUI
                 GUI.color = Color.white;
             }
 
-            // Description
-            Rect descRect = new Rect(nameRect.x, nameRect.yMax + (modName != "Core" ? 17f : 2f), leftColumnWidth - 10f, 25f);
-            Text.Font = GameFont.Tiny;
-            GUI.color = Color.gray;
-            Widgets.Label(descRect, surgery.Description);
-            GUI.color = Color.white;
-            Text.Font = GameFont.Small;
-
             // Middle column - Category and requirements
             var middleColumnX = rect.x + leftColumnWidth;
             var middleColumnWidth = rect.width * 0.3f;
             
-            Rect categoryRect = new Rect(middleColumnX, rect.y + 2f, middleColumnWidth, 20f);
+            Rect categoryRect = new Rect(middleColumnX, rect.y + 5f, middleColumnWidth, 20f);
             GUI.color = GetCategoryColor(surgery.Category);
             Widgets.Label(categoryRect, surgery.Category.ToString());
             GUI.color = Color.white;
 
-            Rect reqRect = new Rect(middleColumnX, categoryRect.yMax + 2f, middleColumnWidth, 30f);
+            Rect reqRect = new Rect(middleColumnX, categoryRect.yMax + 2f, middleColumnWidth, rect.height - categoryRect.height - 10f);
             Text.Font = GameFont.Tiny;
             Widgets.Label(reqRect, surgery.Requirements);
             Text.Font = GameFont.Small;
-
-            // Body part info
-            if (surgery.BodyPart != null)
-            {
-                Rect bodyPartRect = new Rect(middleColumnX, reqRect.yMax + 2f, middleColumnWidth, 15f);
-                Text.Font = GameFont.Tiny;
-                GUI.color = Color.gray;
-                Widgets.Label(bodyPartRect, $"Target: {surgery.BodyPart.Label}");
-                GUI.color = Color.white;
-                Text.Font = GameFont.Small;
-            }
 
             // Right column - Warnings and button
             var rightColumnX = middleColumnX + middleColumnWidth;
@@ -527,7 +572,7 @@ namespace CorvusSurgeryUI
             if (!string.IsNullOrEmpty(surgery.ImplantWarning))
             {
                 Rect warningRect = new Rect(rightColumnX, rect.y + 5f, rightColumnWidth, 30f);
-                GUI.color = Color.yellow;
+                GUI.color = surgery.ImplantWarningColor;
                 Text.Font = GameFont.Tiny;
                 Widgets.Label(warningRect, "⚠ " + surgery.ImplantWarning);
                 Text.Font = GameFont.Small;
@@ -535,26 +580,25 @@ namespace CorvusSurgeryUI
             }
 
             // Add to queue button
-            Rect buttonRect = new Rect(rightColumnX, rect.yMax - 28f, rightColumnWidth - 5f, 25f);
-            bool canQueue = true; // All options from vanilla are considered available and queueable
+            Rect buttonRect = new Rect(rightColumnX, rect.yMax - 30f, rightColumnWidth - 5f, 25f);
+            string buttonText = !surgery.IsDisabled ? "Queue" : "Unavailable";
             
-            GUI.enabled = canQueue;
-            var buttonText = canQueue ? "Queue" : "Unavailable";
-            if (Widgets.ButtonText(buttonRect, buttonText) && canQueue)
+            GUI.enabled = !surgery.IsDisabled;
+            if (Widgets.ButtonText(buttonRect, buttonText))
             {
-                QueueSurgery(surgery.Recipe, surgery.BodyPart);
+                surgery.Action?.Invoke();
             }
             GUI.enabled = true;
 
             // Status indicator
-            Rect statusRect = new Rect(rect.x + 2f, rect.y + 2f, 8f, 8f);
-            var statusColor = canQueue ? Color.green : Color.red;
+            Rect statusRect = new Rect(rect.x + 2f, rect.y + (rect.height / 2) - 4f, 8f, 8f);
+            var statusColor = !surgery.IsDisabled ? Color.green : Color.red;
             Widgets.DrawBoxSolid(statusRect, statusColor);
 
             // Tooltip with comprehensive info
             if (Mouse.IsOver(rect))
             {
-                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {(canQueue ? "Available" : "Not Available")}";
+                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {(buttonText == "Queue" ? "Available" : "Not Available")}";
                 TooltipHandler.TipRegion(rect, tooltipText);
             }
         }
@@ -587,7 +631,15 @@ namespace CorvusSurgeryUI
             
             foreach (var recipe in recipes)
             {
-                if (!recipe.AvailableNow) continue;
+                if (!recipe.IsSurgery) continue;
+
+                // Explicitly check research before anything else.
+                // A recipe isn't even a "possibility" until it's been researched.
+                if ((recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished) || 
+                    (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any(r => !r.IsFinished)))
+                {
+                    continue;
+                }
                 
                 var report = recipe.Worker.AvailableReport(pawn);
                 if (!report.Accepted && report.Reason.NullOrEmpty()) continue;
@@ -646,7 +698,7 @@ namespace CorvusSurgeryUI
 
         private void AddSurgeryOption(FloatMenuOption option, RecipeDef recipe, BodyPartRecord part)
         {
-            if (option == null || option.Disabled || option.Label.NullOrEmpty() || option.action == null)
+            if (option == null || option.Label.NullOrEmpty())
             {
                 return;
             }
@@ -656,8 +708,8 @@ namespace CorvusSurgeryUI
                 Label = option.Label,
                 Description = recipe.description,
                 Category = CategorizeRecipe(recipe),
-                IsAvailable = true, // If we got an option, it's available
-                IsQueueable = true, // And queueable
+                IsAvailable = !option.Disabled,
+                IsDisabled = option.Disabled,
                 Action = option.action,
                 Recipe = recipe,
                 BodyPart = part
@@ -670,16 +722,6 @@ namespace CorvusSurgeryUI
             return recipeCategoryCache.GetValueOrDefault(recipe, SurgeryCategory.Medical);
         }
         
-        private void QueueSurgery(RecipeDef recipe, BodyPartRecord part)
-        {
-            var bill = recipe.MakeNewBill();
-            if (part != null && bill is Bill_Medical medicalBill)
-            {
-                medicalBill.Part = part;
-            }
-            pawn.BillStack.AddBill(bill);
-        }
-
         private bool PassesBasicFilters(SurgeryOptionCached surgery)
         {
             // Search filter
@@ -702,14 +744,15 @@ namespace CorvusSurgeryUI
                 return false;
             }
 
-            // This check is now driven by the "Available" and "Clear All" buttons.
-            if (showOnlyAvailable)
+            // Target filter
+            if (selectedTargetPart != null && surgery.BodyPart != selectedTargetPart)
             {
-                 var missingIngredients = surgery.Recipe.PotentiallyMissingIngredients(null, pawn.MapHeld);
-                 if (missingIngredients != null && missingIngredients.Any())
-                 {
-                     return false;
-                 }
+                return false;
+            }
+
+            if (showOnlyAvailable && surgery.IsDisabled)
+            {
+                return false;
             }
 
             return true;
@@ -769,20 +812,49 @@ namespace CorvusSurgeryUI
             return requirements.Any() ? string.Join(", ", requirements) : "No requirements";
         }
 
-        private string GetImplantWarning(RecipeDef recipe, BodyPartRecord part)
+        private (string, Color) GetImplantWarning(RecipeDef recipe, BodyPartRecord part)
         {
             // Check if this would replace an existing implant
-            if (recipe.addsHediff == null || part == null) return "";
+            if (recipe.addsHediff == null || part == null) return ("", Color.white);
             
-            var existingImplant = pawn.health.hediffSet.hediffs
-                .FirstOrDefault(h => h.Part == part && h.def.isBad == false);
+            var existingImplantHediff = pawn.health.hediffSet.hediffs
+                .FirstOrDefault(h => h.Part == part && h.def.isBad == false && h.def.countsAsAddedPartOrImplant);
             
-            if (existingImplant != null)
+            if (existingImplantHediff == null)
             {
-                return $"Replaces {existingImplant.def.label}";
+                return ("", Color.white);
+            }
+
+            var newHediffDef = recipe.addsHediff;
+            var oldHediffDef = existingImplantHediff.def;
+            
+            var warningText = $"Replaces {oldHediffDef.label}";
+            var warningColor = Color.yellow; // Default
+
+            // Compare part efficiency first, then market value
+            bool newHasEff = newHediffDef.addedPartProps != null && newHediffDef.addedPartProps.partEfficiency > 0;
+            bool oldHasEff = oldHediffDef.addedPartProps != null && oldHediffDef.addedPartProps.partEfficiency > 0;
+
+            if (newHasEff && oldHasEff)
+            {
+                float newEff = newHediffDef.addedPartProps.partEfficiency;
+                float oldEff = oldHediffDef.addedPartProps.partEfficiency;
+                if (newEff > oldEff) warningColor = Color.green;
+                else if (newEff < oldEff) warningColor = Color.red;
+            }
+            else
+            {
+                var newMarketValue = recipe.products?.FirstOrDefault()?.thingDef?.BaseMarketValue ?? 0f;
+                var oldMarketValue = oldHediffDef.spawnThingOnRemoved?.BaseMarketValue ?? 0f;
+
+                if (newMarketValue > 0 || oldMarketValue > 0)
+                {
+                    if (newMarketValue > oldMarketValue) warningColor = Color.green;
+                    else if (newMarketValue < oldMarketValue) warningColor = Color.red;
+                }
             }
             
-            return "";
+            return (warningText, warningColor);
         }
 
         private string GetDetailedTooltip(RecipeDef recipe, BodyPartRecord part)
@@ -865,9 +937,10 @@ namespace CorvusSurgeryUI
         public string Description;
         public SurgeryCategory Category;
         public bool IsAvailable;
-        public bool IsQueueable;
+        public bool IsDisabled;
         public string Requirements;
         public string ImplantWarning;
+        public Color ImplantWarningColor;
         public string Tooltip;
         public Action Action;
         public RecipeDef Recipe;
