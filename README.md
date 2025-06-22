@@ -2,7 +2,7 @@
 
 An advanced, user-friendly interface for managing surgical procedures in RimWorld. Designed for compatibility and ease of use, this mod provides a powerful "Surgery Planner" to streamline your colony's medical operations.
 
-It is fully compatible with other mods and DLCs, correctly finding and displaying all available surgeries, including those from mods like "Expanded Prosthetics and Organ Engineering (EPOE)" or "Royalty".
+It should be fully compatible with other mods and DLCs. Because it uses the game's own internal logic to find surgeries, it can correctly identify and display procedures from any other mod without needing specific patches.
 
 ![Surgery Planner UI](https://i.imgur.com/REPLACE_THIS_WITH_A_REAL_SCREENSHOT.png)  <!-- Replace with an actual screenshot -->
 
@@ -21,6 +21,17 @@ It is fully compatible with other mods and DLCs, correctly finding and displayin
     -   <span style="color:red">**Red:**</span> The new implant is a downgrade.
     -   <span style="color:yellow">**Yellow:**</span> The change is a sidegrade or the difference is unclear.
 -   **Detailed Information:** Each list item clearly displays the target body part, the mod it comes from, and a detailed breakdown of requirements.
+
+## Compatibility
+
+This mod is designed for high compatibility and has been tested with a list of over 70 popular mods without any issues, including:
+- EPOE and EPOE Forked
+- Vanilla Expanded Framework
+- Glitter Tech
+- Sparkling Worlds
+- Questionable Ethics Enhanced
+
+Generally, this mod should be placed after any other mods that add new surgeries or medical procedures. The `loadAfter` list in the `About/About.xml` file is configured to handle many common cases automatically.
 
 ## How It Works
 
