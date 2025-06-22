@@ -24,7 +24,7 @@ It should be fully compatible with other mods and DLCs. Because it uses the game
 
 ## Compatibility
 
-This mod is designed for high compatibility and has been tested with a list of over 70 popular mods without any issues, including:
+This mod is designed for high compatibility and has been tested (in 1.5 as not all mods are avaliable in 1.6 yet) with a list of over 70 popular mods without any issues, including:
 - EPOE and EPOE Forked
 - Vanilla Expanded Framework
 - Glitter Tech
