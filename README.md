@@ -6,6 +6,28 @@ It should be fully compatible with other mods and DLCs. Because it uses the game
 
 ![Surgery Planner UI](https://i.imgur.com/REPLACE_THIS_WITH_A_REAL_SCREENSHOT.png)  <!-- Replace with an actual screenshot -->
 
+# CORVUS LIFE SCIENCES
+## Advanced Surgical Interface System™ v2.7
+
+**Revolutionizing Medical Precision Across the Rim**
+
+At Corvus Life Sciences, we understand that successful surgery requires more than just steady hands—it demands superior information management. That's why our Advanced Surgical Interface System represents the pinnacle of medical UI technology, trusted by colony doctors from the inner worlds to the furthest rim settlements.
+
+**Key Features:**
+- **Streamlined Procedure Selection**: Our proprietary interface reduces surgical prep time by 73%*, allowing medical professionals to focus on what matters most—keeping colonists operational.
+- **Enhanced Risk Assessment**: Clear, intuitive displays help minimize "unexpected outcomes" during complex procedures.
+- **Optimized Workflow Management**: Because every second counts when you're extracting that kidney—we mean, performing life-saving surgery.
+
+*"The Corvus interface helped me perform my best work yet. I barely noticed the screaming."* 
+— Dr. █████, Outer Rim Medical Facility
+
+**Corvus Life Sciences: Your Partner in Ethical Medical Excellence**
+
+*Results may vary. Corvus Life Sciences is not responsible for organ harvesting operations, black market medical procedures, or any activities that may or may not involve the Corvus Operations Group's "Alternative Revenue Streams" division. Side effects may include increased surgical confidence, reduced patient mortality, and an inexplicable urge to install more medical beds.*
+
+---
+*Corvus Operations Group Subsidiary | Building Tomorrow's Rim, Today™*
+
 ## Features
 
 -   **Dedicated "Plan" Button:** Adds a new "Plan" button to the pawn's Health tab, launching a dedicated, comprehensive UI.
