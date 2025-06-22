@@ -1,10 +1,10 @@
-# Corvus Surgery UI
+# [COG] Corvus Surgery UI
 
 An advanced, user-friendly interface for managing surgical procedures in RimWorld. Designed for compatibility and ease of use, this mod provides a powerful "Surgery Planner" to streamline your colony's medical operations.
 
 It is fully compatible with other mods and DLCs, correctly finding and displaying all available surgeries, including those from mods like "Expanded Prosthetics and Organ Engineering (EPOE)" or "Royalty".
 
-![Surgery Planner UI](https://i.imgur.com/example.png)  <!-- Replace with an actual screenshot -->
+![Surgery Planner UI](https://i.imgur.com/REPLACE_THIS_WITH_A_REAL_SCREENSHOT.png)  <!-- Replace with an actual screenshot -->
 
 ## Features
 

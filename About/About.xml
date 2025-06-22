@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-	<name>Corvus Surgery UI</name>
+	<name>[COG] Corvus Surgery UI</name>
 	<author>PlatoArete</author>
 	<supportedVersions>
+		<li>1.4</li>
 		<li>1.5</li>
 	</supportedVersions>
 	<modDependencies>
@@ -26,18 +27,7 @@
 		<li>erdelf.prisonlabor</li>
 		<!-- Load after any mod that adds medical recipes -->
 	</loadAfter>
-	<description>Enhanced surgery planning interface that works with all surgery mods.
-
-Features:
-- Comprehensive surgery browser with filtering and search
-- Shows availability, requirements, and mod sources
-- Compatible with all surgery mods (EPOE, Rah's Bionics, etc.)
-- Performance optimized for large mod lists
-- Integrates seamlessly with existing medical bills system
-
-LOAD ORDER: Place this mod AFTER all surgery/medical mods for best compatibility.
-
-Compatible with all RimWorld versions and surgery mods.</description>
+	<description>An advanced, user-friendly interface for managing surgical procedures. This mod provides a powerful "Surgery Planner" to streamline your colony's medical operations, with advanced filtering and full compatibility with other mods.</description>
 	<packageId>corvus.surgery.ui</packageId>
 	<url>https://github.com/PlatoArete/corvus-surgery-ui</url>
 </ModMetaData> 

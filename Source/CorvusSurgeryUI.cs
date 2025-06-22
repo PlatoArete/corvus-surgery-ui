@@ -17,200 +17,13 @@ namespace CorvusSurgeryUI
             var harmony = new Harmony("corvus.surgery.ui");
             harmony.PatchAll();
             
-            Log.Message("Corvus Surgery UI: Initialized with Harmony patches");
+            Log.Message("Corvus Surgery UI: Initialized");
         }
         
         // Method to clear caches - calls the method in Dialog class
         public static void ClearCaches()
         {
             Dialog_CorvusSurgeryPlanner.ClearStaticCaches();
-        }
-    }
-
-    // Patch to ensure our GameComponent gets added
-    [HarmonyPatch(typeof(Game), "InitNewGame")]
-    public static class Game_InitNewGame_Patch
-    {
-        [HarmonyPostfix]
-        public static void Postfix(Game __instance)
-        {
-            if (__instance.components.OfType<CorvusSurgeryGameComp>().Any()) return;
-            
-            __instance.components.Add(new CorvusSurgeryGameComp(__instance));
-            Log.Message("Corvus Surgery UI: GameComponent added to new game");
-        }
-    }
-    
-    [HarmonyPatch(typeof(Game), "LoadGame")]
-    public static class Game_LoadGame_Patch
-    {
-        [HarmonyPostfix]
-        public static void Postfix()
-        {
-            var game = Current.Game;
-            if (game?.components?.OfType<CorvusSurgeryGameComp>().Any() != true)
-            {
-                game?.components?.Add(new CorvusSurgeryGameComp(game));
-                Log.Message("Corvus Surgery UI: GameComponent added to loaded game");
-            }
-        }
-    }
-
-    // Game state manager for global surgery caching
-    public class CorvusSurgeryGameComp : GameComponent
-    {
-        private static List<RecipeDef> availableRecipesCache = new List<RecipeDef>();
-        private static bool globalCacheBuilt = false;
-        private static int lastResearchHash = 0;
-        
-        public CorvusSurgeryGameComp(Game game) : base() { }
-        
-        public override void GameComponentTick()
-        {
-            // Check every 5 seconds if research has changed
-            if (Find.TickManager.TicksGame % 300 == 0)
-            {
-                CheckAndUpdateGlobalCache();
-            }
-        }
-        
-        public override void LoadedGame()
-        {
-            BuildGlobalSurgeryCache();
-        }
-        
-        public override void StartedNewGame()
-        {
-            BuildGlobalSurgeryCache();
-        }
-        
-        private void CheckAndUpdateGlobalCache()
-        {
-            var currentResearchHash = GetResearchHash();
-            if (currentResearchHash != lastResearchHash)
-            {
-                Log.Message("Corvus Surgery UI: Research changed, rebuilding global cache");
-                BuildGlobalSurgeryCache();
-            }
-        }
-        
-        private static int GetResearchHash()
-        {
-            // Create a hash based on completed research
-            int hash = 0;
-            foreach (var research in DefDatabase<ResearchProjectDef>.AllDefs)
-            {
-                if (research.IsFinished)
-                {
-                    hash ^= research.GetHashCode();
-                }
-            }
-            return hash;
-        }
-        
-        public static void BuildGlobalSurgeryCache()
-        {
-            availableRecipesCache.Clear();
-            
-            // Instead of trying to identify medical recipes ourselves, 
-            // let's use RimWorld's built-in filtering for a sample human pawn
-            var humanDef = ThingDefOf.Human;
-            if (humanDef?.AllRecipes != null)
-            {
-                var potentialRecipes = humanDef.AllRecipes
-                    .Where(r => IsPotentiallyMedical(r))
-                    .ToList();
-                
-                Log.Message($"Corvus Surgery UI: Processing {potentialRecipes.Count} potentially medical recipes from human def (filtered from {DefDatabase<RecipeDef>.AllDefs.Count()} total)");
-                
-                // Log some examples of what we're processing
-                var examples = potentialRecipes.Take(5);
-                foreach (var example in examples)
-                {
-                    Log.Message($"Corvus Surgery UI: Processing recipe '{example.LabelCap}' (worker: {example.workerClass?.Name})");
-                }
-                
-                int filteredCount = 0;
-                foreach (var recipe in potentialRecipes)
-                {
-                    // Check research prerequisites
-                    bool hasResearch = true;
-                    
-                    if (recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished)
-                    {
-                        hasResearch = false;
-                    }
-                    
-                    if (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any())
-                    {
-                        hasResearch = recipe.researchPrerequisites.All(prereq => prereq.IsFinished);
-                    }
-                    
-                    if (hasResearch)
-                    {
-                        availableRecipesCache.Add(recipe);
-                    }
-                    else
-                    {
-                        filteredCount++;
-                    }
-                }
-                
-                globalCacheBuilt = true;
-                lastResearchHash = GetResearchHash();
-                
-                Log.Message($"Corvus Surgery UI: Global cache built with {availableRecipesCache.Count} available recipes ({filteredCount} filtered out by research)");
-                
-                // Log some examples of what was filtered
-                if (filteredCount > 0)
-                {
-                    var filteredExamples = potentialRecipes.Where(r => !availableRecipesCache.Contains(r)).Take(3);
-                    foreach (var example in filteredExamples)
-                    {
-                        var missingResearch = example.researchPrerequisite?.LabelCap ?? "Multiple prerequisites";
-                        Log.Message($"Corvus Surgery UI: Filtered out '{example.LabelCap}' (needs: {missingResearch})");
-                    }
-                }
-            }
-        }
-        
-        private static bool IsPotentiallyMedical(RecipeDef recipe)
-        {
-            // Ultra-conservative filtering - only the most obvious medical recipes
-            
-            // Only include recipes with very specific medical worker classes
-            if (recipe.workerClass != null)
-            {
-                var workerName = recipe.workerClass.Name;
-                if (workerName == "Recipe_Surgery" || 
-                    workerName == "Recipe_InstallArtificialBodyPart" ||
-                    workerName == "Recipe_InstallImplant" ||
-                    workerName == "Recipe_RemoveBodyPart" ||
-                    workerName == "Recipe_RemoveHediff" ||
-                    workerName == "Recipe_AddHediff")
-                {
-                    return true;
-                }
-            }
-            
-            // Only include if it explicitly targets body parts AND adds/removes hediffs
-            if ((recipe.appliedOnFixedBodyParts?.Any() == true || recipe.appliedOnFixedBodyPartGroups?.Any() == true) &&
-                (recipe.addsHediff != null || recipe.removesHediff != null))
-            {
-                return true;
-            }
-            
-            return false;
-        }
-        
-        public static List<RecipeDef> GetAvailableRecipes()
-        {
-            if (!globalCacheBuilt)
-            {
-                BuildGlobalSurgeryCache();
-            }
-            
-            return availableRecipesCache;
         }
     }
 
@@ -262,7 +75,6 @@ namespace CorvusSurgeryUI
         private string searchFilter = "";
         private SurgeryCategory selectedCategory = SurgeryCategory.All;
         private bool showOnlyAvailable = true;
-        private bool showOnlyQueueable = true;
         private string selectedModFilter = "All";
         private List<string> availableMods;
         private BodyPartRecord selectedTargetPart = null;
@@ -926,7 +738,7 @@ namespace CorvusSurgeryUI
             nonTargetedCache.Clear();
             cacheInitialized = false;
             
-            Log.Message("Corvus Surgery UI: Caches cleared and will be rebuilt");
+            Log.Message("Corvus Surgery UI: Caches cleared.");
         }
     }
 
