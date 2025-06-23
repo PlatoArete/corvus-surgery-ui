@@ -74,7 +74,7 @@ namespace CorvusSurgeryUI
         private Vector2 scrollPosition;
         private string searchFilter = "";
         private SurgeryCategory selectedCategory = SurgeryCategory.All;
-        private AvailabilityFilter availabilityFilter = AvailabilityFilter.ShowAll;
+        private AvailabilityFilter availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
         private string selectedModFilter = "All";
         private List<string> availableMods;
         private BodyPartRecord selectedTargetPart = null;
@@ -118,7 +118,7 @@ namespace CorvusSurgeryUI
             ApplyFilters();
         }
 
-        public override Vector2 InitialSize => new Vector2(950f, 600f);
+        public override Vector2 InitialSize => new Vector2(1200f, 700f);
 
         protected override void SetInitialSizeAndPosition()
         {
@@ -146,7 +146,7 @@ namespace CorvusSurgeryUI
 
             // Split the remaining area: left for available surgeries, right for queue
             var remainingHeight = inRect.height - 190f; // Increased from 160f to account for taller filters
-            var queueWidth = 400f; // Increased width for queue (was 300f)
+            var queueWidth = 500f; // Increased from 400f for less clutter
             var surgeryListWidth = inRect.width - queueWidth - 10f; // Rest for surgeries
 
             // Available Surgeries (left side)
@@ -262,7 +262,7 @@ namespace CorvusSurgeryUI
                 searchFilter = "";
                 selectedCategory = SurgeryCategory.All;
                 selectedModFilter = "All";
-                availabilityFilter = AvailabilityFilter.ShowAll;
+                availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
                 selectedTargetPart = null;
                 ApplyFilters();
             }
@@ -859,20 +859,20 @@ namespace CorvusSurgeryUI
         {
             // Section header
             Text.Font = GameFont.Medium;
-            var headerRect = new Rect(rect.x, rect.y, rect.width - 160f, 25f);
+            var headerRect = new Rect(rect.x, rect.y, rect.width - 190f, 25f); // Increased from 160f to accommodate wider buttons
             Widgets.Label(headerRect, $"Surgery Queue ({queuedBills.Count} bills)");
             Text.Font = GameFont.Small;
             
             // Bulk action buttons
             if (queuedBills.Count > 0)
             {
-                var suspendAllRect = new Rect(rect.xMax - 155f, rect.y, 70f, 20f);
+                var suspendAllRect = new Rect(rect.xMax - 185f, rect.y, 85f, 20f);
                 if (Widgets.ButtonText(suspendAllRect, "Suspend All"))
                 {
                     SuspendAllBills();
                 }
                 
-                var activateAllRect = new Rect(rect.xMax - 80f, rect.y, 75f, 20f);
+                var activateAllRect = new Rect(rect.xMax - 95f, rect.y, 90f, 20f);
                 if (Widgets.ButtonText(activateAllRect, "Activate All"))
                 {
                     ActivateAllBills();
