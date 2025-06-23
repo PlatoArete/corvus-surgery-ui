@@ -93,6 +93,10 @@ namespace CorvusSurgeryUI
         private List<Bill_Medical> queuedBills = new List<Bill_Medical>();
         private Vector2 billScrollPosition = Vector2.zero;
 
+        // Surgery presets
+        private static Dictionary<string, List<SurgeryPresetItem>> surgeryPresets = new Dictionary<string, List<SurgeryPresetItem>>();
+        private string selectedPreset = "(none)";
+
         // Performance optimization - static caches
         private static Dictionary<RecipeDef, SurgeryCategory> recipeCategoryCache = new Dictionary<RecipeDef, SurgeryCategory>();
         private static Dictionary<RecipeDef, bool> nonTargetedCache = new Dictionary<RecipeDef, bool>();
@@ -851,22 +855,31 @@ namespace CorvusSurgeryUI
 
         private void DrawQueuedBills(Rect rect)
         {
+            // Preset management section
+            var presetSectionHeight = 25f;
+            var presetRect = new Rect(rect.x, rect.y, rect.width, presetSectionHeight);
+            DrawPresetSection(presetRect);
+            
+            // Adjust the queue area to account for preset section
+            var queueStartY = rect.y + presetSectionHeight + 5f;
+            var queueHeight = rect.height - presetSectionHeight - 5f;
+            
             // Section header
             Text.Font = GameFont.Medium;
-            var headerRect = new Rect(rect.x, rect.y, rect.width - 190f, 25f); // Increased from 160f to accommodate wider buttons
+            var headerRect = new Rect(rect.x, queueStartY, rect.width - 190f, 25f); // Increased from 160f to accommodate wider buttons
             Widgets.Label(headerRect, $"Surgery Queue ({queuedBills.Count} bills)");
             Text.Font = GameFont.Small;
             
             // Bulk action buttons
             if (queuedBills.Count > 0)
             {
-                var suspendAllRect = new Rect(rect.xMax - 185f, rect.y, 85f, 20f);
+                var suspendAllRect = new Rect(rect.xMax - 185f, queueStartY, 85f, 20f); // Increased width from 70f to 85f
                 if (Widgets.ButtonText(suspendAllRect, "Suspend All"))
                 {
                     SuspendAllBills();
                 }
                 
-                var activateAllRect = new Rect(rect.xMax - 95f, rect.y, 90f, 20f);
+                var activateAllRect = new Rect(rect.xMax - 95f, queueStartY, 90f, 20f); // Increased width from 75f to 90f
                 if (Widgets.ButtonText(activateAllRect, "Activate All"))
                 {
                     ActivateAllBills();
@@ -874,7 +887,7 @@ namespace CorvusSurgeryUI
             }
             
             // Queue area
-            var queueRect = new Rect(rect.x, rect.y + 30f, rect.width, rect.height - 30f);
+            var queueRect = new Rect(rect.x, queueStartY + 30f, rect.width, queueHeight - 30f);
             Widgets.DrawBoxSolid(queueRect, Color.black * 0.2f);
             Widgets.DrawBox(queueRect, 1);
             
@@ -942,6 +955,33 @@ namespace CorvusSurgeryUI
                 GUI.color = new Color(1f, 1f, 1f, 0.8f);
                 DrawBillItem(dragRect, draggedBill, draggedIndex);
                 GUI.color = Color.white;
+            }
+        }
+
+        private void DrawPresetSection(Rect rect)
+        {
+            // Save Preset button
+            var saveButtonRect = new Rect(rect.x, rect.y, 100f, rect.height);
+            if (Widgets.ButtonText(saveButtonRect, "Save Preset"))
+            {
+                ShowSavePresetDialog();
+            }
+            
+            // Preset dropdown
+            var dropdownRect = new Rect(saveButtonRect.xMax + 10f, rect.y, 150f, rect.height);
+            if (Widgets.ButtonText(dropdownRect, selectedPreset))
+            {
+                ShowPresetDropdown();
+            }
+            
+            // Load button (only if a preset is selected)
+            if (selectedPreset != "(none)")
+            {
+                var loadButtonRect = new Rect(dropdownRect.xMax + 10f, rect.y, 80f, rect.height);
+                if (Widgets.ButtonText(loadButtonRect, "Load"))
+                {
+                    LoadPreset(selectedPreset);
+                }
             }
         }
 
@@ -1311,6 +1351,152 @@ namespace CorvusSurgeryUI
                 Log.Error($"Corvus Surgery UI: Error force-queueing surgery '{recipe?.defName}': {ex}");
             }
         }
+
+        private void ShowSavePresetDialog()
+        {
+            if (queuedBills.Count == 0)
+            {
+                Messages.Message("No surgeries to save in preset.", MessageTypeDefOf.RejectInput);
+                return;
+            }
+            
+            Find.WindowStack.Add(new Dialog_PresetNaming((name) => {
+                if (!name.NullOrEmpty())
+                {
+                    SavePreset(name);
+                    selectedPreset = name;
+                }
+            }));
+        }
+
+        private void ShowPresetDropdown()
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            
+            // Add "(none)" option
+            options.Add(new FloatMenuOption("(none)", () => {
+                selectedPreset = "(none)";
+            }));
+            
+            // Add saved presets
+            foreach (var presetName in surgeryPresets.Keys)
+            {
+                var name = presetName; // Capture for closure
+                options.Add(new FloatMenuOption($"{name} ({surgeryPresets[name].Count} surgeries)", () => {
+                    selectedPreset = name;
+                }));
+            }
+            
+            if (surgeryPresets.Count == 0)
+            {
+                options.Add(new FloatMenuOption("No presets saved", null) { Disabled = true });
+            }
+            
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void SavePreset(string name)
+        {
+            try
+            {
+                var presetItems = new List<SurgeryPresetItem>();
+                
+                foreach (var bill in queuedBills)
+                {
+                    presetItems.Add(new SurgeryPresetItem(bill.recipe, bill.Part, bill.suspended));
+                }
+                
+                surgeryPresets[name] = presetItems;
+                Messages.Message($"Preset '{name}' saved with {presetItems.Count} surgeries.", MessageTypeDefOf.PositiveEvent);
+                
+                Log.Message($"Corvus Surgery UI: Saved preset '{name}' with {presetItems.Count} surgeries");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error saving preset '{name}': {ex}");
+                Messages.Message("Error saving preset.", MessageTypeDefOf.RejectInput);
+            }
+        }
+
+        private void LoadPreset(string name)
+        {
+            try
+            {
+                if (!surgeryPresets.ContainsKey(name))
+                {
+                    Messages.Message("Preset not found.", MessageTypeDefOf.RejectInput);
+                    return;
+                }
+                
+                // Clear current bills
+                if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
+                {
+                    var billsToRemove = billGiver.BillStack.Bills.OfType<Bill_Medical>().ToList();
+                    foreach (var bill in billsToRemove)
+                    {
+                        billGiver.BillStack.Delete(bill);
+                    }
+                }
+                
+                // Load preset bills
+                var presetItems = surgeryPresets[name];
+                int loadedCount = 0;
+                
+                foreach (var item in presetItems)
+                {
+                    var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                    if (recipe == null) continue;
+                    
+                    BodyPartRecord bodyPart = null;
+                    if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        bodyPart = FindBodyPart(item.BodyPartLabel);
+                    }
+                    
+                    // Create and add bill
+                    if (thingForMedBills is IBillGiver billGiver2 && billGiver2.BillStack != null)
+                    {
+                        var bill = new Bill_Medical(recipe, null);
+                        bill.Part = bodyPart;
+                        bill.suspended = item.IsSuspended;
+                        billGiver2.BillStack.AddBill(bill);
+                        loadedCount++;
+                    }
+                }
+                
+                LoadQueuedBills(); // Refresh our local list
+                Messages.Message($"Loaded preset '{name}': {loadedCount} surgeries.", MessageTypeDefOf.PositiveEvent);
+                
+                Log.Message($"Corvus Surgery UI: Loaded preset '{name}' with {loadedCount} surgeries");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error loading preset '{name}': {ex}");
+                Messages.Message("Error loading preset.", MessageTypeDefOf.RejectInput);
+            }
+        }
+
+        private BodyPartRecord FindBodyPart(string bodyPartLabel)
+        {
+            if (bodyPartLabel.NullOrEmpty()) return null;
+            
+            var parts = bodyPartLabel.Split('|');
+            if (parts.Length != 2) return null;
+            
+            var defName = parts[0];
+            if (!int.TryParse(parts[1], out int index)) return null;
+            
+            // Find the body part by def name and index
+            foreach (var part in pawn.health.hediffSet.GetNotMissingParts())
+            {
+                if (part.def.defName == defName && part.Index == index)
+                {
+                    return part;
+                }
+            }
+            
+            return null;
+        }
     }
 
     // Data structure for cached surgery options
@@ -1347,5 +1533,75 @@ namespace CorvusSurgeryUI
         ShowAvailableOnly,
         MissingItem,
         MissingSkill
+    }
+
+    public class SurgeryPresetItem
+    {
+        public string RecipeDefName;
+        public string BodyPartLabel;
+        public bool IsSuspended;
+        
+        public SurgeryPresetItem() { }
+        
+        public SurgeryPresetItem(RecipeDef recipe, BodyPartRecord bodyPart, bool suspended = false)
+        {
+            RecipeDefName = recipe?.defName;
+            BodyPartLabel = bodyPart?.def?.defName + "|" + bodyPart?.Index;
+            IsSuspended = suspended;
+        }
+    }
+
+    public class Dialog_PresetNaming : Window
+    {
+        private string presetName = "";
+        private Action<string> onConfirm;
+
+        public Dialog_PresetNaming(Action<string> onConfirm)
+        {
+            this.onConfirm = onConfirm;
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+            this.closeOnAccept = false;
+        }
+
+        public override Vector2 InitialSize => new Vector2(400f, 200f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Save Surgery Preset");
+            Text.Font = GameFont.Small;
+
+            var labelRect = new Rect(0f, 40f, inRect.width, 25f);
+            Widgets.Label(labelRect, "Enter preset name:");
+
+            var textFieldRect = new Rect(0f, 70f, inRect.width, 30f);
+            presetName = Widgets.TextField(textFieldRect, presetName);
+
+            // Buttons
+            var buttonWidth = 80f;
+            var buttonHeight = 35f;
+            var spacing = 20f;
+            var totalButtonWidth = (buttonWidth * 2) + spacing;
+            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+
+            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            {
+                Close();
+            }
+
+            var confirmRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(confirmRect, "Save") || (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return))
+            {
+                if (!presetName.NullOrEmpty())
+                {
+                    onConfirm?.Invoke(presetName);
+                    Close();
+                }
+            }
+        }
     }
 }
