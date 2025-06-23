@@ -79,6 +79,7 @@ namespace CorvusSurgeryUI
         private List<string> availableMods;
         private BodyPartRecord selectedTargetPart = null;
         private List<BodyPartRecord> availableTargets;
+        private bool allowQueueingDisabled = false; // New option - off by default
         
         private List<SurgeryOptionCached> allPawnSurgeries; // Master list, built once
         private List<SurgeryOptionCached> filteredSurgeries; // The list that gets displayed
@@ -140,20 +141,20 @@ namespace CorvusSurgeryUI
             GUI.color = Color.white;
 
             // Filters section
-            Rect filtersRect = new Rect(0f, 55f, inRect.width, 100f);
+            Rect filtersRect = new Rect(0f, 55f, inRect.width, 130f); // Increased height for checkbox
             DrawFilters(filtersRect);
 
             // Split the remaining area: left for available surgeries, right for queue
-            var remainingHeight = inRect.height - 160f;
+            var remainingHeight = inRect.height - 190f; // Increased from 160f to account for taller filters
             var queueWidth = 400f; // Increased width for queue (was 300f)
             var surgeryListWidth = inRect.width - queueWidth - 10f; // Rest for surgeries
 
             // Available Surgeries (left side)
-            Rect surgeryListRect = new Rect(0f, 160f, surgeryListWidth, remainingHeight);
+            Rect surgeryListRect = new Rect(0f, 190f, surgeryListWidth, remainingHeight); // Increased Y from 160f
             DrawSurgeryList(surgeryListRect);
 
             // Surgery Queue (right side)
-            Rect queuedBillsRect = new Rect(surgeryListWidth + 10f, 160f, queueWidth, remainingHeight);
+            Rect queuedBillsRect = new Rect(surgeryListWidth + 10f, 190f, queueWidth, remainingHeight); // Increased Y from 160f
             DrawQueuedBills(queuedBillsRect);
         }
 
@@ -292,6 +293,18 @@ namespace CorvusSurgeryUI
                 selectedCategory = SurgeryCategory.Implants;
                 ApplyFilters();
             }
+
+            // Queue Non Allowed checkbox (third row)
+            currentY += 30f;
+            var checkboxY = currentY;
+            var checkboxRect = new Rect(rect.x + 5f, checkboxY, 200f, 20f);
+            bool newAllowQueueingDisabled = allowQueueingDisabled;
+            Widgets.CheckboxLabeled(checkboxRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
+            if (newAllowQueueingDisabled != allowQueueingDisabled)
+            {
+                allowQueueingDisabled = newAllowQueueingDisabled;
+                // No need to refresh filters, this affects button behavior not filtering
+            }
         }
         
         private void PopulateAvailableMods()
@@ -424,24 +437,71 @@ namespace CorvusSurgeryUI
 
             // Add to queue button
             Rect buttonRect = new Rect(rightColumnX, rect.yMax - 30f, rightColumnWidth - 5f, 25f);
-            string buttonText = !surgery.IsDisabled ? "Queue" : "Unavailable";
+            string buttonText;
+            bool canQueue;
             
-            GUI.enabled = !surgery.IsDisabled;
+            if (surgery.IsDisabled && !allowQueueingDisabled)
+            {
+                buttonText = "Unavailable";
+                canQueue = false;
+            }
+            else
+            {
+                buttonText = "Queue";
+                canQueue = true;
+            }
+            
+            GUI.enabled = canQueue;
             if (Widgets.ButtonText(buttonRect, buttonText))
             {
-                surgery.Action?.Invoke();
+                if (surgery.IsDisabled && allowQueueingDisabled)
+                {
+                    // Use the force queue action for disabled surgeries
+                    surgery.ForceQueueAction?.Invoke();
+                }
+                else
+                {
+                    // Use the normal action for available surgeries
+                    surgery.Action?.Invoke();
+                }
             }
             GUI.enabled = true;
 
             // Status indicator
             Rect statusRect = new Rect(rect.x + 2f, rect.y + (rect.height / 2) - 4f, 8f, 8f);
-            var statusColor = !surgery.IsDisabled ? Color.green : Color.red;
+            Color statusColor;
+            if (!surgery.IsDisabled)
+            {
+                statusColor = Color.green; // Available
+            }
+            else if (allowQueueingDisabled)
+            {
+                statusColor = Color.yellow; // Disabled but can be queued
+            }
+            else
+            {
+                statusColor = Color.red; // Disabled and cannot be queued
+            }
             Widgets.DrawBoxSolid(statusRect, statusColor);
 
             // Tooltip with comprehensive info
             if (Mouse.IsOver(rect))
             {
-                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {(buttonText == "Queue" ? "Available" : "Not Available")}";
+                string statusText;
+                if (!surgery.IsDisabled)
+                {
+                    statusText = "Available";
+                }
+                else if (allowQueueingDisabled)
+                {
+                    statusText = "Not Available (but can be queued for later)";
+                }
+                else
+                {
+                    statusText = "Not Available";
+                }
+                
+                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {statusText}";
                 TooltipHandler.TipRegion(rect, tooltipText);
             }
         }
@@ -553,6 +613,12 @@ namespace CorvusSurgeryUI
                 LoadQueuedBills(); // Refresh the queue after adding
             });
             
+            // Create a custom action for disabled surgeries that can be force-queued
+            var forceQueueAction = new System.Action(() => {
+                ForceQueueSurgery(recipe, part);
+                LoadQueuedBills(); // Refresh the queue after adding
+            });
+            
             allPawnSurgeries.Add(new SurgeryOptionCached
             {
                 Label = option.Label,
@@ -561,6 +627,7 @@ namespace CorvusSurgeryUI
                 IsAvailable = !option.Disabled,
                 IsDisabled = option.Disabled,
                 Action = wrappedAction,
+                ForceQueueAction = forceQueueAction, // New action for disabled surgeries
                 Recipe = recipe,
                 BodyPart = part
             });
@@ -1228,6 +1295,28 @@ namespace CorvusSurgeryUI
                 
             return !hasSkill;
         }
+        
+        private void ForceQueueSurgery(RecipeDef recipe, BodyPartRecord part)
+        {
+            try
+            {
+                if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
+                {
+                    // Create a new medical bill directly with empty ingredients list
+                    Bill_Medical bill = new Bill_Medical(recipe, null);
+                    bill.Part = part;
+                    
+                    // Add the bill to the stack
+                    billGiver.BillStack.AddBill(bill);
+                    
+                    Log.Message($"Corvus Surgery UI: Force-queued '{recipe.LabelCap}' on {part?.LabelCap ?? "whole body"}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error force-queueing surgery '{recipe?.defName}': {ex}");
+            }
+        }
     }
 
     // Data structure for cached surgery options
@@ -1243,6 +1332,7 @@ namespace CorvusSurgeryUI
         public Color ImplantWarningColor;
         public string Tooltip;
         public Action Action;
+        public Action ForceQueueAction;
         public RecipeDef Recipe;
         public BodyPartRecord BodyPart;
     }
