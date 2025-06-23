@@ -74,7 +74,7 @@ namespace CorvusSurgeryUI
         private Vector2 scrollPosition;
         private string searchFilter = "";
         private SurgeryCategory selectedCategory = SurgeryCategory.All;
-        private bool showOnlyAvailable = true;
+        private AvailabilityFilter availabilityFilter = AvailabilityFilter.ShowAll;
         private string selectedModFilter = "All";
         private List<string> availableMods;
         private BodyPartRecord selectedTargetPart = null;
@@ -83,6 +83,14 @@ namespace CorvusSurgeryUI
         private List<SurgeryOptionCached> allPawnSurgeries; // Master list, built once
         private List<SurgeryOptionCached> filteredSurgeries; // The list that gets displayed
         private Thing thingForMedBills;
+
+        // Drag and drop state
+        private bool isDragging = false;
+        private int draggedIndex = -1;
+        private Vector2 dragOffset;
+        private int dropTargetIndex = -1;
+        private List<Bill_Medical> queuedBills = new List<Bill_Medical>();
+        private Vector2 billScrollPosition = Vector2.zero;
 
         // Performance optimization - static caches
         private static Dictionary<RecipeDef, SurgeryCategory> recipeCategoryCache = new Dictionary<RecipeDef, SurgeryCategory>();
@@ -99,6 +107,9 @@ namespace CorvusSurgeryUI
             
             // Initialize static caches if needed
             InitializeStaticCaches();
+            
+            // Load existing queued bills
+            LoadQueuedBills();
             
             BuildFullSurgeryList();
             PopulateAvailableMods();
@@ -128,13 +139,22 @@ namespace CorvusSurgeryUI
             Widgets.Label(subtitleRect, "Compatible with all surgery mods - Filter and organize your surgical options");
             GUI.color = Color.white;
 
-            // Filters section (expanded for better mod support)
+            // Filters section
             Rect filtersRect = new Rect(0f, 55f, inRect.width, 100f);
             DrawFilters(filtersRect);
 
-            // Surgery list
-            Rect surgeryListRect = new Rect(0f, 160f, inRect.width, inRect.height - 200f);
+            // Split the remaining area: left for available surgeries, right for queue
+            var remainingHeight = inRect.height - 160f;
+            var queueWidth = 400f; // Increased width for queue (was 300f)
+            var surgeryListWidth = inRect.width - queueWidth - 10f; // Rest for surgeries
+
+            // Available Surgeries (left side)
+            Rect surgeryListRect = new Rect(0f, 160f, surgeryListWidth, remainingHeight);
             DrawSurgeryList(surgeryListRect);
+
+            // Surgery Queue (right side)
+            Rect queuedBillsRect = new Rect(surgeryListWidth + 10f, 160f, queueWidth, remainingHeight);
+            DrawQueuedBills(queuedBillsRect);
         }
 
         private void DrawFilters(Rect rect)
@@ -241,24 +261,32 @@ namespace CorvusSurgeryUI
                 searchFilter = "";
                 selectedCategory = SurgeryCategory.All;
                 selectedModFilter = "All";
-                showOnlyAvailable = false; // Clearing shows all
+                availabilityFilter = AvailabilityFilter.ShowAll;
                 selectedTargetPart = null;
                 ApplyFilters();
             }
             
-            // Show/Hide available toggle button
-            var toggleButtonWidth = 140f;
-            var toggleButtonRect = new Rect(clearButtonRect.xMax + buttonSpacing, quickFilterY, toggleButtonWidth, buttonHeight);
-            string toggleButtonText = showOnlyAvailable ? "Show All" : "Show Available Only";
-            if (Widgets.ButtonText(toggleButtonRect, toggleButtonText))
+            // Availability filter dropdown
+            var availabilityButtonWidth = 140f;
+            var availabilityButtonRect = new Rect(clearButtonRect.xMax + buttonSpacing, quickFilterY, availabilityButtonWidth, buttonHeight);
+            string availabilityButtonText = GetAvailabilityFilterText(availabilityFilter);
+            if (Widgets.ButtonText(availabilityButtonRect, availabilityButtonText))
             {
-                showOnlyAvailable = !showOnlyAvailable;
-                ApplyFilters();
+                List<FloatMenuOption> availabilityOptions = new List<FloatMenuOption>();
+                foreach (AvailabilityFilter filter in Enum.GetValues(typeof(AvailabilityFilter)))
+                {
+                    var count = GetFilteredCount(filter);
+                    availabilityOptions.Add(new FloatMenuOption($"{GetAvailabilityFilterText(filter)} ({count})", () => {
+                        availabilityFilter = filter;
+                        ApplyFilters();
+                    }));
+                }
+                Find.WindowStack.Add(new FloatMenu(availabilityOptions));
             }
 
             // Implants quick-filter button
             var implantsButtonWidth = 80f;
-            var implantsButtonRect = new Rect(toggleButtonRect.xMax + buttonSpacing, quickFilterY, implantsButtonWidth, buttonHeight);
+            var implantsButtonRect = new Rect(availabilityButtonRect.xMax + buttonSpacing, quickFilterY, implantsButtonWidth, buttonHeight);
             if (Widgets.ButtonText(implantsButtonRect, "Implants"))
             {
                 selectedCategory = SurgeryCategory.Implants;
@@ -306,16 +334,19 @@ namespace CorvusSurgeryUI
             Widgets.BeginScrollView(rect, ref scrollPosition, viewRect);
 
             float y = 0f;
-            foreach (var surgery in filteredSurgeries)
+            for (int i = 0; i < filteredSurgeries.Count; i++)
             {
-                DrawSurgeryOption(new Rect(5f, y, viewRect.width - 10f, rowHeight), surgery);
+                var surgery = filteredSurgeries[i];
+                var surgeryRect = new Rect(5f, y, viewRect.width - 10f, rowHeight);
+                
+                DrawSurgeryOption(surgeryRect, surgery, i);
                 y += rowHeight + rowSpacing;
             }
 
             Widgets.EndScrollView();
         }
 
-        private void DrawSurgeryOption(Rect rect, SurgeryOptionCached surgery)
+        private void DrawSurgeryOption(Rect rect, SurgeryOptionCached surgery, int index)
         {
             // Lazy load expensive properties only when displaying
             if (string.IsNullOrEmpty(surgery.Requirements))
@@ -515,6 +546,13 @@ namespace CorvusSurgeryUI
                 return;
             }
             
+            // Wrap the original action to refresh the bill queue after adding
+            var originalAction = option.action;
+            var wrappedAction = new System.Action(() => {
+                originalAction?.Invoke();
+                LoadQueuedBills(); // Refresh the queue after adding
+            });
+            
             allPawnSurgeries.Add(new SurgeryOptionCached
             {
                 Label = option.Label,
@@ -522,7 +560,7 @@ namespace CorvusSurgeryUI
                 Category = CategorizeRecipe(recipe),
                 IsAvailable = !option.Disabled,
                 IsDisabled = option.Disabled,
-                Action = option.action,
+                Action = wrappedAction,
                 Recipe = recipe,
                 BodyPart = part
             });
@@ -562,7 +600,7 @@ namespace CorvusSurgeryUI
                 return false;
             }
 
-            if (showOnlyAvailable && surgery.IsDisabled)
+            if (!PassesAvailabilityFilter(surgery, availabilityFilter))
             {
                 return false;
             }
@@ -740,6 +778,345 @@ namespace CorvusSurgeryUI
             
             Log.Message("Corvus Surgery UI: Caches cleared.");
         }
+
+        private void LoadQueuedBills()
+        {
+            queuedBills.Clear();
+            if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
+            {
+                queuedBills.AddRange(billGiver.BillStack.Bills.OfType<Bill_Medical>());
+            }
+        }
+
+        private void DrawQueuedBills(Rect rect)
+        {
+            // Section header
+            Text.Font = GameFont.Medium;
+            var headerRect = new Rect(rect.x, rect.y, rect.width, 25f);
+            Widgets.Label(headerRect, $"Surgery Queue ({queuedBills.Count} bills)");
+            Text.Font = GameFont.Small;
+            
+            // Queue area
+            var queueRect = new Rect(rect.x, rect.y + 30f, rect.width, rect.height - 30f);
+            Widgets.DrawBoxSolid(queueRect, Color.black * 0.2f);
+            Widgets.DrawBox(queueRect, 1);
+            
+            if (queuedBills.Count == 0)
+            {
+                var noQueueRect = new Rect(queueRect.x + 10f, queueRect.y + 10f, queueRect.width - 20f, 30f);
+                GUI.color = Color.gray;
+                Widgets.Label(noQueueRect, "No surgeries queued. Click 'Queue' on surgeries below to add them.");
+                GUI.color = Color.white;
+                return;
+            }
+            
+            // Handle drag and drop for bill reordering
+            HandleBillDragAndDrop(queueRect);
+            
+            // Draw queued bills with drag-and-drop support
+            float billHeight = 30f;
+            float billSpacing = 2f;
+            var billsViewRect = new Rect(0f, 0f, queueRect.width - 20f, (billHeight + billSpacing) * queuedBills.Count);
+            
+            Widgets.BeginScrollView(queueRect, ref billScrollPosition, billsViewRect);
+            
+            float y = 0f;
+            for (int i = 0; i < queuedBills.Count; i++)
+            {
+                var bill = queuedBills[i];
+                var billRect = new Rect(5f, y, billsViewRect.width - 10f, billHeight);
+                
+                // Draw drop indicator
+                if (dropTargetIndex == i && isDragging)
+                {
+                    var dropIndicatorRect = new Rect(billRect.x, billRect.y - 2f, billRect.width, 4f);
+                    Widgets.DrawBoxSolid(dropIndicatorRect, Color.cyan);
+                }
+                
+                // Skip drawing the dragged item at its original position
+                if (isDragging && draggedIndex == i)
+                {
+                    y += billHeight + billSpacing;
+                    continue;
+                }
+                
+                DrawBillItem(billRect, bill, i);
+                y += billHeight + billSpacing;
+            }
+            
+            // Draw drop indicator at the end
+            if (dropTargetIndex == queuedBills.Count && isDragging)
+            {
+                var dropIndicatorRect = new Rect(5f, y - 2f, billsViewRect.width - 10f, 4f);
+                Widgets.DrawBoxSolid(dropIndicatorRect, Color.cyan);
+            }
+            
+            Widgets.EndScrollView();
+            
+            // Draw dragged item on top
+            if (isDragging && draggedIndex >= 0 && draggedIndex < queuedBills.Count)
+            {
+                var draggedBill = queuedBills[draggedIndex];
+                var dragRect = new Rect(Event.current.mousePosition.x + dragOffset.x, 
+                                      Event.current.mousePosition.y + dragOffset.y, 
+                                      billsViewRect.width - 10f, billHeight);
+                
+                // Draw with transparency to show it's being dragged
+                GUI.color = new Color(1f, 1f, 1f, 0.8f);
+                DrawBillItem(dragRect, draggedBill, draggedIndex);
+                GUI.color = Color.white;
+            }
+        }
+
+        private void DrawBillItem(Rect billRect, Bill_Medical bill, int index)
+        {
+            // Background
+            Color bgColor = index % 2 == 0 ? Color.black * 0.1f : Color.black * 0.2f;
+            Widgets.DrawBoxSolid(billRect, bgColor);
+            
+            // Bill info
+            var labelRect = new Rect(billRect.x + 5f, billRect.y + 5f, billRect.width - 100f, billRect.height - 10f);
+            string billLabel = bill.LabelCap;
+            if (bill.Part != null)
+            {
+                billLabel += $" ({bill.Part.LabelCap})";
+            }
+            Widgets.Label(labelRect, billLabel);
+            
+            // Remove button
+            var removeButtonRect = new Rect(billRect.xMax - 60f, billRect.y + 3f, 55f, billRect.height - 6f);
+            if (Widgets.ButtonText(removeButtonRect, "Remove"))
+            {
+                RemoveBill(index);
+            }
+            
+            // Priority indicators
+            var priorityRect = new Rect(billRect.xMax - 120f, billRect.y + 5f, 50f, billRect.height - 10f);
+            GUI.color = Color.yellow;
+            Widgets.Label(priorityRect, $"#{index + 1}");
+            GUI.color = Color.white;
+        }
+
+        private void HandleBillDragAndDrop(Rect queueRect)
+        {
+            Event e = Event.current;
+            var billHeight = 30f;
+            var billSpacing = 2f;
+            
+            switch (e.type)
+            {
+                case EventType.MouseDown:
+                    if (e.button == 0 && queueRect.Contains(e.mousePosition))
+                    {
+                        // Calculate which bill was clicked
+                        var relativeY = e.mousePosition.y - queueRect.y + billScrollPosition.y;
+                        var clickedIndex = Mathf.FloorToInt(relativeY / (billHeight + billSpacing));
+                        
+                        if (clickedIndex >= 0 && clickedIndex < queuedBills.Count)
+                        {
+                            // Check if click is not on the remove button
+                            var billRect = new Rect(5f, clickedIndex * (billHeight + billSpacing), queueRect.width - 20f, billHeight);
+                            var removeButtonRect = new Rect(billRect.xMax - 60f, billRect.y + 3f, 55f, billRect.height - 6f);
+                            var localMousePos = new Vector2(e.mousePosition.x - queueRect.x, relativeY);
+                            
+                            if (!removeButtonRect.Contains(localMousePos))
+                            {
+                                isDragging = true;
+                                draggedIndex = clickedIndex;
+                                dragOffset = new Vector2(-150f, -15f); // Center the dragged item on cursor
+                                e.Use();
+                            }
+                        }
+                    }
+                    break;
+                    
+                case EventType.MouseUp:
+                    if (e.button == 0 && isDragging)
+                    {
+                        // Calculate drop position
+                        var relativeY = e.mousePosition.y - queueRect.y + billScrollPosition.y;
+                        var dropIndex = Mathf.FloorToInt(relativeY / (billHeight + billSpacing));
+                        dropIndex = Mathf.Clamp(dropIndex, 0, queuedBills.Count);
+                        
+                        // Perform the reorder if valid
+                        if (dropIndex != draggedIndex && draggedIndex >= 0 && draggedIndex < queuedBills.Count)
+                        {
+                            ReorderBill(draggedIndex, dropIndex);
+                        }
+                        
+                        isDragging = false;
+                        draggedIndex = -1;
+                        dropTargetIndex = -1;
+                        e.Use();
+                    }
+                    break;
+                    
+                case EventType.MouseDrag:
+                    if (isDragging)
+                    {
+                        // Update drop target index for visual feedback
+                        var relativeY = e.mousePosition.y - queueRect.y + billScrollPosition.y;
+                        dropTargetIndex = Mathf.FloorToInt(relativeY / (billHeight + billSpacing));
+                        dropTargetIndex = Mathf.Clamp(dropTargetIndex, 0, queuedBills.Count);
+                        e.Use();
+                    }
+                    break;
+            }
+        }
+
+        private void ReorderBill(int fromIndex, int toIndex)
+        {
+            try
+            {
+                // Find the corresponding bill in the actual bill stack
+                if (fromIndex < 0 || fromIndex >= queuedBills.Count) return;
+                if (toIndex < 0 || toIndex > queuedBills.Count) return;
+                
+                var billToMove = queuedBills[fromIndex];
+                
+                // Get the bill giver (medical bed/facility)
+                if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
+                {
+                    // Remove the bill from its current position
+                    billGiver.BillStack.Delete(billToMove);
+                    
+                    // Insert it at the new position
+                    if (toIndex >= billGiver.BillStack.Count)
+                    {
+                        billGiver.BillStack.AddBill(billToMove);
+                    }
+                    else
+                    {
+                        var billsToMove = new List<Bill>();
+                        for (int i = toIndex; i < billGiver.BillStack.Count; i++)
+                        {
+                            billsToMove.Add(billGiver.BillStack[i]);
+                        }
+                        
+                        // Remove bills after insertion point
+                        for (int i = billGiver.BillStack.Count - 1; i >= toIndex; i--)
+                        {
+                            billGiver.BillStack.Delete(billGiver.BillStack[i]);
+                        }
+                        
+                        // Add the moved bill
+                        billGiver.BillStack.AddBill(billToMove);
+                        
+                        // Re-add the moved bills
+                        foreach (var bill in billsToMove)
+                        {
+                            billGiver.BillStack.AddBill(bill);
+                        }
+                    }
+                    
+                    // Refresh our local bill list
+                    LoadQueuedBills();
+                    
+                    Log.Message($"Corvus Surgery UI: Reordered bill from position {fromIndex} to {toIndex}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error reordering bill: {ex}");
+            }
+        }
+
+        private void RemoveBill(int index)
+        {
+            try
+            {
+                if (index >= 0 && index < queuedBills.Count)
+                {
+                    var bill = queuedBills[index];
+                    if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
+                    {
+                        billGiver.BillStack.Delete(bill);
+                        LoadQueuedBills(); // Refresh the list
+                        Log.Message($"Corvus Surgery UI: Removed bill at index {index}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error removing bill: {ex}");
+            }
+        }
+
+        private string GetAvailabilityFilterText(AvailabilityFilter filter)
+        {
+            switch (filter)
+            {
+                case AvailabilityFilter.ShowAll:
+                    return "Show All";
+                case AvailabilityFilter.ShowAvailableOnly:
+                    return "Available Only";
+                case AvailabilityFilter.MissingItem:
+                    return "Missing Item";
+                case AvailabilityFilter.MissingSkill:
+                    return "Missing Skill";
+                default:
+                    return "Show All";
+            }
+        }
+
+        private int GetFilteredCount(AvailabilityFilter filter)
+        {
+            if (allPawnSurgeries == null) return 0;
+            
+            return allPawnSurgeries.Count(surgery => PassesAvailabilityFilter(surgery, filter));
+        }
+
+        private bool PassesAvailabilityFilter(SurgeryOptionCached surgery, AvailabilityFilter filter)
+        {
+            switch (filter)
+            {
+                case AvailabilityFilter.ShowAll:
+                    return true;
+                case AvailabilityFilter.ShowAvailableOnly:
+                    return !surgery.IsDisabled;
+                case AvailabilityFilter.MissingItem:
+                    return surgery.IsDisabled && IsMissingItems(surgery);
+                case AvailabilityFilter.MissingSkill:
+                    return surgery.IsDisabled && IsMissingSkill(surgery);
+                default:
+                    return true;
+            }
+        }
+
+        private bool IsMissingItems(SurgeryOptionCached surgery)
+        {
+            if (surgery.Recipe?.ingredients == null) return false;
+            
+            foreach (var ingredient in surgery.Recipe.ingredients)
+            {
+                var availableCount = 0;
+                if (pawn.Map != null)
+                {
+                    foreach (var thing in pawn.Map.listerThings.AllThings.Where(t => ingredient.filter.Allows(t)))
+                    {
+                        availableCount += thing.stackCount;
+                    }
+                }
+                
+                var needed = ingredient.GetBaseCount();
+                if (availableCount < needed)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool IsMissingSkill(SurgeryOptionCached surgery)
+        {
+            if (surgery.Recipe?.skillRequirements?.Any() != true) return false;
+            
+            var skill = surgery.Recipe.skillRequirements.First();
+            var hasSkill = pawn.Map?.mapPawns?.FreeColonists?.Any(p => 
+                p.skills?.GetSkill(skill.skill)?.Level >= skill.minLevel) ?? false;
+                
+            return !hasSkill;
+        }
     }
 
     // Data structure for cached surgery options
@@ -767,5 +1144,13 @@ namespace CorvusSurgeryUI
         Implants,
         Removal,
         Amputation
+    }
+
+    public enum AvailabilityFilter
+    {
+        ShowAll,
+        ShowAvailableOnly,
+        MissingItem,
+        MissingSkill
     }
 }
