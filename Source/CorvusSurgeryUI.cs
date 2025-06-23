@@ -133,28 +133,22 @@ namespace CorvusSurgeryUI
             var surgeryCount = filteredSurgeries?.Count ?? 0;
             Widgets.Label(titleRect, $"Surgery Planner - {pawn.LabelShort} ({surgeryCount} surgeries found)");
             Text.Font = GameFont.Small;
-            
-            // Subtitle
-            var subtitleRect = new Rect(0f, 25f, inRect.width, 25f);
-            GUI.color = Color.gray;
-            Widgets.Label(subtitleRect, "Compatible with all surgery mods - Filter and organize your surgical options");
-            GUI.color = Color.white;
 
             // Filters section
-            Rect filtersRect = new Rect(0f, 55f, inRect.width, 130f); // Increased height for checkbox
+            Rect filtersRect = new Rect(0f, 35f, inRect.width, 130f); // Moved up from 55f since subtitle was removed
             DrawFilters(filtersRect);
 
             // Split the remaining area: left for available surgeries, right for queue
-            var remainingHeight = inRect.height - 190f; // Increased from 160f to account for taller filters
+            var remainingHeight = inRect.height - 170f; // Reduced from 190f since we moved filters up
             var queueWidth = 500f; // Increased from 400f for less clutter
             var surgeryListWidth = inRect.width - queueWidth - 10f; // Rest for surgeries
 
             // Available Surgeries (left side)
-            Rect surgeryListRect = new Rect(0f, 190f, surgeryListWidth, remainingHeight); // Increased Y from 160f
+            Rect surgeryListRect = new Rect(0f, 170f, surgeryListWidth, remainingHeight); // Reduced Y from 190f
             DrawSurgeryList(surgeryListRect);
 
             // Surgery Queue (right side)
-            Rect queuedBillsRect = new Rect(surgeryListWidth + 10f, 190f, queueWidth, remainingHeight); // Increased Y from 160f
+            Rect queuedBillsRect = new Rect(surgeryListWidth + 10f, 170f, queueWidth, remainingHeight); // Reduced Y from 190f
             DrawQueuedBills(queuedBillsRect);
         }
 
