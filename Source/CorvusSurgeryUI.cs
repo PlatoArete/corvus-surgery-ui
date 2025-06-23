@@ -792,9 +792,25 @@ namespace CorvusSurgeryUI
         {
             // Section header
             Text.Font = GameFont.Medium;
-            var headerRect = new Rect(rect.x, rect.y, rect.width, 25f);
+            var headerRect = new Rect(rect.x, rect.y, rect.width - 160f, 25f);
             Widgets.Label(headerRect, $"Surgery Queue ({queuedBills.Count} bills)");
             Text.Font = GameFont.Small;
+            
+            // Bulk action buttons
+            if (queuedBills.Count > 0)
+            {
+                var suspendAllRect = new Rect(rect.xMax - 155f, rect.y, 70f, 20f);
+                if (Widgets.ButtonText(suspendAllRect, "Suspend All"))
+                {
+                    SuspendAllBills();
+                }
+                
+                var activateAllRect = new Rect(rect.xMax - 80f, rect.y, 75f, 20f);
+                if (Widgets.ButtonText(activateAllRect, "Activate All"))
+                {
+                    ActivateAllBills();
+                }
+            }
             
             // Queue area
             var queueRect = new Rect(rect.x, rect.y + 30f, rect.width, rect.height - 30f);
@@ -868,33 +884,127 @@ namespace CorvusSurgeryUI
             }
         }
 
+        private void SuspendAllBills()
+        {
+            try
+            {
+                int suspendedCount = 0;
+                foreach (var bill in queuedBills)
+                {
+                    if (!bill.suspended)
+                    {
+                        bill.suspended = true;
+                        suspendedCount++;
+                    }
+                }
+                Log.Message($"Corvus Surgery UI: Suspended {suspendedCount} bills");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error suspending all bills: {ex}");
+            }
+        }
+
+        private void ActivateAllBills()
+        {
+            try
+            {
+                int activatedCount = 0;
+                foreach (var bill in queuedBills)
+                {
+                    if (bill.suspended)
+                    {
+                        bill.suspended = false;
+                        activatedCount++;
+                    }
+                }
+                Log.Message($"Corvus Surgery UI: Activated {activatedCount} bills");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error activating all bills: {ex}");
+            }
+        }
+
         private void DrawBillItem(Rect billRect, Bill_Medical bill, int index)
         {
-            // Background
-            Color bgColor = index % 2 == 0 ? Color.black * 0.1f : Color.black * 0.2f;
+            // Background - different color for suspended bills
+            Color bgColor;
+            if (bill.suspended)
+            {
+                bgColor = index % 2 == 0 ? Color.red * 0.2f : Color.red * 0.3f; // Reddish for suspended
+            }
+            else
+            {
+                bgColor = index % 2 == 0 ? Color.black * 0.1f : Color.black * 0.2f; // Normal colors
+            }
             Widgets.DrawBoxSolid(billRect, bgColor);
             
             // Bill info
-            var labelRect = new Rect(billRect.x + 5f, billRect.y + 5f, billRect.width - 100f, billRect.height - 10f);
+            var labelRect = new Rect(billRect.x + 5f, billRect.y + 5f, billRect.width - 160f, billRect.height - 10f);
             string billLabel = bill.LabelCap;
             if (bill.Part != null)
             {
                 billLabel += $" ({bill.Part.LabelCap})";
             }
+            
+            // Add suspension indicator to label
+            if (bill.suspended)
+            {
+                GUI.color = Color.yellow;
+                billLabel = "⏸ " + billLabel + " (SUSPENDED)";
+            }
+            else
+            {
+                GUI.color = Color.white;
+            }
+            
             Widgets.Label(labelRect, billLabel);
+            GUI.color = Color.white;
+            
+            // Suspend/Activate button
+            var suspendButtonRect = new Rect(billRect.xMax - 155f, billRect.y + 3f, 70f, billRect.height - 6f);
+            string suspendButtonText = bill.suspended ? "Activate" : "Suspend";
+            Color suspendButtonColor = bill.suspended ? Color.green : Color.yellow;
+            
+            GUI.color = suspendButtonColor;
+            if (Widgets.ButtonText(suspendButtonRect, suspendButtonText))
+            {
+                ToggleBillSuspension(index);
+            }
+            GUI.color = Color.white;
             
             // Remove button
-            var removeButtonRect = new Rect(billRect.xMax - 60f, billRect.y + 3f, 55f, billRect.height - 6f);
+            var removeButtonRect = new Rect(billRect.xMax - 80f, billRect.y + 3f, 75f, billRect.height - 6f);
             if (Widgets.ButtonText(removeButtonRect, "Remove"))
             {
                 RemoveBill(index);
             }
             
             // Priority indicators
-            var priorityRect = new Rect(billRect.xMax - 120f, billRect.y + 5f, 50f, billRect.height - 10f);
-            GUI.color = Color.yellow;
+            var priorityRect = new Rect(billRect.xMax - 170f, billRect.y + 5f, 50f, billRect.height - 10f);
+            GUI.color = bill.suspended ? Color.gray : Color.yellow;
             Widgets.Label(priorityRect, $"#{index + 1}");
             GUI.color = Color.white;
+        }
+
+        private void ToggleBillSuspension(int index)
+        {
+            try
+            {
+                if (index >= 0 && index < queuedBills.Count)
+                {
+                    var bill = queuedBills[index];
+                    bill.suspended = !bill.suspended;
+                    
+                    string action = bill.suspended ? "suspended" : "activated";
+                    Log.Message($"Corvus Surgery UI: {action} bill '{bill.LabelCap}' at index {index}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error toggling bill suspension: {ex}");
+            }
         }
 
         private void HandleBillDragAndDrop(Rect queueRect)
@@ -914,12 +1024,13 @@ namespace CorvusSurgeryUI
                         
                         if (clickedIndex >= 0 && clickedIndex < queuedBills.Count)
                         {
-                            // Check if click is not on the remove button
+                            // Check if click is not on the remove or suspend buttons
                             var billRect = new Rect(5f, clickedIndex * (billHeight + billSpacing), queueRect.width - 20f, billHeight);
-                            var removeButtonRect = new Rect(billRect.xMax - 60f, billRect.y + 3f, 55f, billRect.height - 6f);
+                            var removeButtonRect = new Rect(billRect.xMax - 80f, billRect.y + 3f, 75f, billRect.height - 6f);
+                            var suspendButtonRect = new Rect(billRect.xMax - 155f, billRect.y + 3f, 70f, billRect.height - 6f);
                             var localMousePos = new Vector2(e.mousePosition.x - queueRect.x, relativeY);
                             
-                            if (!removeButtonRect.Contains(localMousePos))
+                            if (!removeButtonRect.Contains(localMousePos) && !suspendButtonRect.Contains(localMousePos))
                             {
                                 isDragging = true;
                                 draggedIndex = clickedIndex;
