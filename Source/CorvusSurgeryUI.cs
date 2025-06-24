@@ -1340,10 +1340,16 @@ namespace CorvusSurgeryUI
                     Bill_Medical bill = new Bill_Medical(recipe, null);
                     bill.Part = part;
                     
+                    // Automatically suspend force-queued bills so pawns don't wait in bed
+                    bill.suspended = true;
+                    
                     // Add the bill to the stack
                     billGiver.BillStack.AddBill(bill);
                     
-                    Log.Message($"Corvus Surgery UI: Force-queued '{recipe.LabelCap}' on {part?.LabelCap ?? "whole body"}");
+                    // Register this bill as auto-suspended for periodic checking
+                    AutoSuspendTracker.RegisterAutoSuspendedBill(bill, thingForMedBills, pawn);
+                    
+                    Log.Message($"Corvus Surgery UI: Force-queued '{recipe.LabelCap}' on {part?.LabelCap ?? "whole body"} (automatically suspended)");
                 }
             }
             catch (Exception ex)
@@ -1603,5 +1609,218 @@ namespace CorvusSurgeryUI
                 }
             }
         }
+    }
+
+    // System for tracking auto-suspended bills and checking their availability
+    public class AutoSuspendTracker : GameComponent
+    {
+        private static Dictionary<int, AutoSuspendedBillInfo> autoSuspendedBills = new Dictionary<int, AutoSuspendedBillInfo>();
+        private int lastCheckTick = 0;
+        private const int CHECK_INTERVAL_TICKS = 2500; // Check every ~1 game hour
+
+        public AutoSuspendTracker() { }
+        public AutoSuspendTracker(Game game) { }
+
+        public static void RegisterAutoSuspendedBill(Bill_Medical bill, Thing billGiver, Pawn pawn = null)
+        {
+            var targetPawn = pawn ?? GetPawnFromBillGiver(billGiver);
+            var info = new AutoSuspendedBillInfo
+            {
+                Bill = bill,
+                BillGiver = billGiver,
+                Pawn = targetPawn
+            };
+            
+            autoSuspendedBills[bill.GetHashCode()] = info;
+        }
+
+        private static Pawn GetPawnFromBillGiver(Thing billGiver)
+        {
+            // For medical beds
+            if (billGiver is Building_Bed bed)
+            {
+                return bed.CurOccupants.FirstOrDefault();
+            }
+            
+            // For other medical facilities, try to find the pawn via bills
+            if (billGiver is IBillGiver giver && giver.BillStack?.Bills?.Any() == true)
+            {
+                // Look for any existing medical bill to get the pawn
+                var existingBill = giver.BillStack.Bills.OfType<Bill_Medical>().FirstOrDefault();
+                if (existingBill != null)
+                {
+                    // For medical bills, we can't easily get the target pawn this way
+                    // We'll rely on the bed occupant check or return null
+                    return null;
+                }
+            }
+            
+            return null;
+        }
+
+        public static void UnregisterBill(Bill_Medical bill)
+        {
+            autoSuspendedBills.Remove(bill.GetHashCode());
+        }
+
+        public override void GameComponentTick()
+        {
+            if (Find.TickManager.TicksGame - lastCheckTick >= CHECK_INTERVAL_TICKS)
+            {
+                CheckAutoSuspendedBills();
+                lastCheckTick = Find.TickManager.TicksGame;
+            }
+        }
+
+        private void CheckAutoSuspendedBills()
+        {
+            var billsToRemove = new List<int>();
+            var billsToUnsuspend = new List<AutoSuspendedBillInfo>();
+
+            foreach (var kvp in autoSuspendedBills)
+            {
+                var billInfo = kvp.Value;
+                var bill = billInfo.Bill;
+
+                // Check if bill still exists
+                if (bill?.billStack == null || bill.DeletedOrDereferenced)
+                {
+                    billsToRemove.Add(kvp.Key);
+                    continue;
+                }
+
+                // Skip if bill was manually unsuspended already
+                if (!bill.suspended)
+                {
+                    billsToRemove.Add(kvp.Key);
+                    continue;
+                }
+
+                // Check if the surgery is now available
+                if (IsSurgeryNowAvailable(bill, billInfo))
+                {
+                    billsToUnsuspend.Add(billInfo);
+                    billsToRemove.Add(kvp.Key);
+                }
+            }
+
+            // Clean up removed bills
+            foreach (var key in billsToRemove)
+            {
+                autoSuspendedBills.Remove(key);
+            }
+
+            // Unsuspend available bills
+            foreach (var billInfo in billsToUnsuspend)
+            {
+                try
+                {
+                    billInfo.Bill.suspended = false;
+                    Log.Message($"Corvus Surgery UI: Auto-unsuspended '{billInfo.Bill.LabelCap}' - now available");
+                    
+                    // Send notification to player
+                    if (billInfo.Pawn != null)
+                    {
+                        Messages.Message($"Surgery now available: {billInfo.Bill.LabelCap} for {billInfo.Pawn.LabelShort}", 
+                                       billInfo.Pawn, MessageTypeDefOf.PositiveEvent);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Corvus Surgery UI: Error auto-unsuspending bill: {ex}");
+                }
+            }
+
+            if (billsToUnsuspend.Count > 0)
+            {
+                Log.Message($"Corvus Surgery UI: Auto-unsuspended {billsToUnsuspend.Count} bills that became available");
+            }
+        }
+
+        private bool IsSurgeryNowAvailable(Bill_Medical bill, AutoSuspendedBillInfo billInfo)
+        {
+            try
+            {
+                var recipe = bill.recipe;
+                var pawn = billInfo.Pawn;
+                var billGiver = billInfo.BillGiver;
+
+                if (recipe == null || pawn == null || billGiver == null) return false;
+
+                // Check research requirements
+                if ((recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished) || 
+                    (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any(r => !r.IsFinished)))
+                {
+                    return false;
+                }
+
+                // Check recipe availability report
+                var report = recipe.Worker.AvailableReport(pawn);
+                if (!report.Accepted && !report.Reason.NullOrEmpty()) return false;
+
+                // Check if surgery is available on the specific body part (for targeted surgeries)
+                if (recipe.targetsBodyPart && bill.Part != null)
+                {
+                    if (!recipe.AvailableOnNow(pawn, bill.Part)) return false;
+                }
+
+                // Check for non-targeted surgeries that add hediffs
+                if (!recipe.targetsBodyPart && recipe.addsHediff != null)
+                {
+                    if (pawn.health.hediffSet.HasHediff(recipe.addsHediff)) return false;
+                }
+
+                // Check ingredients availability (basic check)
+                var missingIngredients = recipe.PotentiallyMissingIngredients(null, billGiver.MapHeld);
+                if (missingIngredients?.Any() == true)
+                {
+                    // Check if we actually have the ingredients available now
+                    bool hasAllIngredients = true;
+                    foreach (var ingredient in recipe.ingredients)
+                    {
+                        var availableCount = 0;
+                        if (billGiver.Map != null)
+                        {
+                            foreach (var thing in billGiver.Map.listerThings.AllThings.Where(t => ingredient.filter.Allows(t)))
+                            {
+                                availableCount += thing.stackCount;
+                            }
+                        }
+                        
+                        var needed = ingredient.GetBaseCount();
+                        if (availableCount < needed)
+                        {
+                            hasAllIngredients = false;
+                            break;
+                        }
+                    }
+                    
+                    if (!hasAllIngredients) return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error checking surgery availability: {ex}");
+                return false;
+            }
+        }
+
+        public override void ExposeData()
+        {
+            // Clear on save/load since bills will be recreated
+            if (Scribe.mode == LoadSaveMode.LoadingVars)
+            {
+                autoSuspendedBills.Clear();
+            }
+        }
+    }
+
+    public class AutoSuspendedBillInfo
+    {
+        public Bill_Medical Bill;
+        public Thing BillGiver;
+        public Pawn Pawn;
     }
 }
