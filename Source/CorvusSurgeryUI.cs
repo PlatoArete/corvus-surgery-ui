@@ -58,11 +58,90 @@ namespace CorvusSurgeryUI
                 }
                 
                 // Add tooltip
-                TooltipHandler.TipRegion(planButtonRect, "Open enhanced surgery planning interface with filtering and mod compatibility");
+                TooltipHandler.TipRegion(planButtonRect, "Open enhanced surgery planning interface with filtering and mod compatibility (or press O)");
             }
             catch (Exception ex)
             {
                 Log.Error($"Corvus Surgery UI: Error in operations tab patch: {ex}");
+            }
+        }
+    }
+
+    // Patch to add keyboard shortcut for opening surgery planner
+    [HarmonyPatch(typeof(MainButtonsRoot), "MainButtonsOnGUI")]
+    public static class MainButtonsRoot_MainButtonsOnGUI_Patch
+    {
+        private static bool keyHandled = false;
+
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            try
+            {
+                // Reset the key handled state at the start of each frame
+                if (Event.current != null && Event.current.type == EventType.Layout)
+                {
+                    keyHandled = false;
+                }
+
+                // Only proceed if we haven't handled the key this frame
+                if (keyHandled) return;
+
+                // Check for O key press
+                if (Event.current != null && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.O)
+                {
+                    Log.Message("Corvus Surgery UI: O key detected");
+
+                    // Don't trigger if we're in text input
+                    if (KeyBindingDefOf.Cancel.IsDownEvent)
+                    {
+                        Log.Message("Corvus Surgery UI: Cancel key down, ignoring");
+                        return;
+                    }
+
+                    // Get the target pawn
+                    var selectedPawn = Find.Selector.SelectedPawns.FirstOrDefault();
+                    if (selectedPawn == null)
+                    {
+                        // Try single selected thing
+                        if (Find.Selector.SingleSelectedThing is Pawn pawn)
+                        {
+                            selectedPawn = pawn;
+                        }
+                    }
+
+                    // If no pawn selected, use first colonist
+                    if (selectedPawn == null)
+                    {
+                        selectedPawn = Find.ColonistBar.GetColonistsInOrder().FirstOrDefault();
+                    }
+
+                    if (selectedPawn != null)
+                    {
+                        // Check if pawn can have surgery
+                        bool canHaveSurgery = selectedPawn.RaceProps.Humanlike || (selectedPawn.RaceProps.Animal && selectedPawn.health?.hediffSet != null);
+                        if (!canHaveSurgery)
+                        {
+                            Messages.Message("Selected pawn cannot have surgery.", MessageTypeDefOf.RejectInput);
+                            return;
+                        }
+
+                        // Just open the planner - RimWorld will handle facility requirements
+                        Log.Message($"Corvus Surgery UI: Opening planner for {selectedPawn.LabelShort}");
+                        var dialog = new Dialog_CorvusSurgeryPlanner(selectedPawn, selectedPawn);
+                        Find.WindowStack.Add(dialog);
+                        Event.current.Use();
+                        keyHandled = true;
+                    }
+                    else
+                    {
+                        Messages.Message("No colonist available for surgery planning.", MessageTypeDefOf.RejectInput);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error in keyboard shortcut patch: {ex}");
             }
         }
     }
