@@ -58,11 +58,90 @@ namespace CorvusSurgeryUI
                 }
                 
                 // Add tooltip
-                TooltipHandler.TipRegion(planButtonRect, "Open enhanced surgery planning interface with filtering and mod compatibility");
+                TooltipHandler.TipRegion(planButtonRect, "Open enhanced surgery planning interface with filtering and mod compatibility (or press O)");
             }
             catch (Exception ex)
             {
                 Log.Error($"Corvus Surgery UI: Error in operations tab patch: {ex}");
+            }
+        }
+    }
+
+    // Patch to add keyboard shortcut for opening surgery planner
+    [HarmonyPatch(typeof(MainButtonsRoot), "MainButtonsOnGUI")]
+    public static class MainButtonsRoot_MainButtonsOnGUI_Patch
+    {
+        private static bool keyHandled = false;
+
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            try
+            {
+                // Reset the key handled state at the start of each frame
+                if (Event.current != null && Event.current.type == EventType.Layout)
+                {
+                    keyHandled = false;
+                }
+
+                // Only proceed if we haven't handled the key this frame
+                if (keyHandled) return;
+
+                // Check for O key press
+                if (Event.current != null && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.O)
+                {
+                    Log.Message("Corvus Surgery UI: O key detected");
+
+                    // Don't trigger if we're in text input
+                    if (KeyBindingDefOf.Cancel.IsDownEvent)
+                    {
+                        Log.Message("Corvus Surgery UI: Cancel key down, ignoring");
+                        return;
+                    }
+
+                    // Get the target pawn
+                    var selectedPawn = Find.Selector.SelectedPawns.FirstOrDefault();
+                    if (selectedPawn == null)
+                    {
+                        // Try single selected thing
+                        if (Find.Selector.SingleSelectedThing is Pawn pawn)
+                        {
+                            selectedPawn = pawn;
+                        }
+                    }
+
+                    // If no pawn selected, use first colonist
+                    if (selectedPawn == null)
+                    {
+                        selectedPawn = Find.ColonistBar.GetColonistsInOrder().FirstOrDefault();
+                    }
+
+                    if (selectedPawn != null)
+                    {
+                        // Check if pawn can have surgery
+                        bool canHaveSurgery = selectedPawn.RaceProps.Humanlike || (selectedPawn.RaceProps.Animal && selectedPawn.health?.hediffSet != null);
+                        if (!canHaveSurgery)
+                        {
+                            Messages.Message("Selected pawn cannot have surgery.", MessageTypeDefOf.RejectInput);
+                            return;
+                        }
+
+                        // Just open the planner - RimWorld will handle facility requirements
+                        Log.Message($"Corvus Surgery UI: Opening planner for {selectedPawn.LabelShort}");
+                        var dialog = new Dialog_CorvusSurgeryPlanner(selectedPawn, selectedPawn);
+                        Find.WindowStack.Add(dialog);
+                        Event.current.Use();
+                        keyHandled = true;
+                    }
+                    else
+                    {
+                        Messages.Message("No colonist available for surgery planning.", MessageTypeDefOf.RejectInput);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error in keyboard shortcut patch: {ex}");
             }
         }
     }
@@ -242,6 +321,54 @@ namespace CorvusSurgeryUI
                         ApplyFilters();
                     }));
                 }
+                Find.WindowStack.Add(new FloatMenu(options));
+            }
+
+            // Pawn selector
+            Rect pawnLabelRect = new Rect(targetButtonRect.xMax + 15f, currentY, 45f, 20f);
+            Widgets.Label(pawnLabelRect, "Pawn:");
+
+            Rect pawnButtonRect = new Rect(pawnLabelRect.xMax + 5f, currentY, 150f, 25f);
+            if (Widgets.ButtonText(pawnButtonRect, pawn.LabelShort))
+            {
+                List<FloatMenuOption> options = new List<FloatMenuOption>();
+                
+                // Get all valid pawns (same logic as the O key shortcut)
+                var allPawns = Find.Maps.SelectMany(m => m.mapPawns.AllPawns)
+                    .Where(p => p.Faction == Faction.OfPlayer && 
+                        (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null)))
+                    .OrderByDescending(p => p.RaceProps.Humanlike) // Humans first, then animals
+                    .ThenBy(p => p.LabelShort);
+
+                foreach (var possiblePawn in allPawns)
+                {
+                    string label = possiblePawn.LabelShort;
+                    if (possiblePawn.RaceProps.Animal)
+                    {
+                        label += $" ({possiblePawn.def.label})";
+                    }
+
+                    options.Add(new FloatMenuOption(label, () => {
+                        if (possiblePawn != pawn)
+                        {
+                            // Switch to the new pawn
+                            pawn = possiblePawn;
+                            // Rebuild surgery list for new pawn
+                            BuildFullSurgeryList();
+                            PopulateAvailableTargets();
+                            // Load any existing bills for the new pawn
+                            LoadQueuedBills();
+                            // Reapply filters to update the view
+                            ApplyFilters();
+                        }
+                    }));
+                }
+
+                if (!options.Any())
+                {
+                    options.Add(new FloatMenuOption("No other valid pawns", null) { Disabled = true });
+                }
+
                 Find.WindowStack.Add(new FloatMenu(options));
             }
 
