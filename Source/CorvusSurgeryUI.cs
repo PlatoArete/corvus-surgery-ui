@@ -767,11 +767,16 @@ namespace CorvusSurgeryUI
         private bool PassesBasicFilters(SurgeryOptionCached surgery)
         {
             // Search filter
-            if (!string.IsNullOrEmpty(searchFilter) && 
-                !surgery.Label.ToLower().Contains(searchFilter.ToLower()) &&
-                (surgery.Recipe?.description?.ToLower().Contains(searchFilter.ToLower()) == false))
+            if (!string.IsNullOrEmpty(searchFilter))
             {
-                return false;
+                string searchLower = searchFilter.ToLower();
+                bool matchesLabel = surgery.Label.ToLower().Contains(searchLower);
+                bool matchesDescription = surgery.Recipe?.description?.ToLower().Contains(searchLower) ?? false;
+                
+                if (!matchesLabel && !matchesDescription)
+                {
+                    return false;
+                }
             }
 
             // Category filter
