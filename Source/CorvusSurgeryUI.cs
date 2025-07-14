@@ -324,6 +324,54 @@ namespace CorvusSurgeryUI
                 Find.WindowStack.Add(new FloatMenu(options));
             }
 
+            // Pawn selector
+            Rect pawnLabelRect = new Rect(targetButtonRect.xMax + 15f, currentY, 45f, 20f);
+            Widgets.Label(pawnLabelRect, "Pawn:");
+
+            Rect pawnButtonRect = new Rect(pawnLabelRect.xMax + 5f, currentY, 150f, 25f);
+            if (Widgets.ButtonText(pawnButtonRect, pawn.LabelShort))
+            {
+                List<FloatMenuOption> options = new List<FloatMenuOption>();
+                
+                // Get all valid pawns (same logic as the O key shortcut)
+                var allPawns = Find.Maps.SelectMany(m => m.mapPawns.AllPawns)
+                    .Where(p => p.Faction == Faction.OfPlayer && 
+                        (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null)))
+                    .OrderByDescending(p => p.RaceProps.Humanlike) // Humans first, then animals
+                    .ThenBy(p => p.LabelShort);
+
+                foreach (var possiblePawn in allPawns)
+                {
+                    string label = possiblePawn.LabelShort;
+                    if (possiblePawn.RaceProps.Animal)
+                    {
+                        label += $" ({possiblePawn.def.label})";
+                    }
+
+                    options.Add(new FloatMenuOption(label, () => {
+                        if (possiblePawn != pawn)
+                        {
+                            // Switch to the new pawn
+                            pawn = possiblePawn;
+                            // Rebuild surgery list for new pawn
+                            BuildFullSurgeryList();
+                            PopulateAvailableTargets();
+                            // Load any existing bills for the new pawn
+                            LoadQueuedBills();
+                            // Reapply filters to update the view
+                            ApplyFilters();
+                        }
+                    }));
+                }
+
+                if (!options.Any())
+                {
+                    options.Add(new FloatMenuOption("No other valid pawns", null) { Disabled = true });
+                }
+
+                Find.WindowStack.Add(new FloatMenu(options));
+            }
+
             // Second row - Quick Filters
             currentY += 30f;
             var quickFilterY = currentY;
