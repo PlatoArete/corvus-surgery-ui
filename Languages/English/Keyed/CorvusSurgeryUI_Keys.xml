@@ -1,40 +1,64 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8" ?>
 <LanguageData>
-  <!-- Corvus Surgery UI Translation Keys -->
+  <!-- Button Labels -->
+  <CorvusSurgeryUI.PlanButton>Plan</CorvusSurgeryUI.PlanButton>
+  <CorvusSurgeryUI.PlanButtonTooltip>Open enhanced surgery planning interface with filtering and mod compatibility (or press O)</CorvusSurgeryUI.PlanButtonTooltip>
   
-  <!-- UI Elements -->
-  <CorvusSurgery_MainTitle>Surgery Planner</CorvusSurgery_MainTitle>
-  <CorvusSurgery_SurgeryPlannerButton>Surgery Planner</CorvusSurgery_SurgeryPlannerButton>
-  <CorvusSurgery_SurgeryPlannerTooltip>Open enhanced surgery planning interface with filtering and mod compatibility</CorvusSurgery_SurgeryPlannerTooltip>
-  <CorvusSurgery_CompatibilityInfo>Compatible with all surgery mods - Filter and organize your surgical options</CorvusSurgery_CompatibilityInfo>
-  <CorvusSurgery_CloseButton>Close</CorvusSurgery_CloseButton>
+  <!-- Filter Labels -->
+  <CorvusSurgeryUI.Search>Search:</CorvusSurgeryUI.Search>
+  <CorvusSurgeryUI.Category>Category:</CorvusSurgeryUI.Category>
+  <CorvusSurgeryUI.Mod>Mod:</CorvusSurgeryUI.Mod>
+  <CorvusSurgeryUI.Target>Target:</CorvusSurgeryUI.Target>
+  <CorvusSurgeryUI.Pawn>Pawn:</CorvusSurgeryUI.Pawn>
+  <CorvusSurgeryUI.All>All</CorvusSurgeryUI.All>
+  <CorvusSurgeryUI.ClearAll>Clear All</CorvusSurgeryUI.ClearAll>
+  <CorvusSurgeryUI.Implants>Implants</CorvusSurgeryUI.Implants>
+  <CorvusSurgeryUI.QueueNonAllowed>Queue Non Allowed</CorvusSurgeryUI.QueueNonAllowed>
   
-  <!-- Filters -->
-  <CorvusSurgery_Search>Search:</CorvusSurgery_Search>
-  <CorvusSurgery_Category>Category:</CorvusSurgery_Category>
-  <CorvusSurgery_ShowSource>Show source:</CorvusSurgery_ShowSource>
-  <CorvusSurgery_OnlyAvailable>Only available now</CorvusSurgery_OnlyAvailable>
-  <CorvusSurgery_OnlyQueueable>Only queueable</CorvusSurgery_OnlyQueueable>
-  <CorvusSurgery_ClearAll>Clear All</CorvusSurgery_ClearAll>
-  <CorvusSurgery_Available>Available</CorvusSurgery_Available>
-  <CorvusSurgery_Implants>Implants</CorvusSurgery_Implants>
+  <!-- Surgery Categories -->
+  <CorvusSurgeryUI.Category.Medical>Medical</CorvusSurgeryUI.Category.Medical>
+  <CorvusSurgeryUI.Category.Prosthetics>Prosthetics</CorvusSurgeryUI.Category.Prosthetics>
+  <CorvusSurgeryUI.Category.Implants>Implants</CorvusSurgeryUI.Category.Implants>
+  <CorvusSurgeryUI.Category.Removal>Removal</CorvusSurgeryUI.Category.Removal>
+  <CorvusSurgeryUI.Category.Amputation>Amputation</CorvusSurgeryUI.Category.Amputation>
   
-  <!-- Surgery Operations -->
-  <CorvusSurgery_AddToQueue>Add to Queue</CorvusSurgery_AddToQueue>
-  <CorvusSurgery_CannotQueue>Cannot Queue</CorvusSurgery_CannotQueue>
-  <CorvusSurgery_Unavailable>Unavailable</CorvusSurgery_Unavailable>
-  <CorvusSurgery_Refresh>Refresh</CorvusSurgery_Refresh>
-  <CorvusSurgery_ViewBills>View Bills</CorvusSurgery_ViewBills>
+  <!-- Queue Management -->
+  <CorvusSurgeryUI.SurgeryQueue>Surgery Queue ({0} bills)</CorvusSurgeryUI.SurgeryQueue>
+  <CorvusSurgeryUI.SuspendAll>Suspend All</CorvusSurgeryUI.SuspendAll>
+  <CorvusSurgeryUI.ActivateAll>Activate All</CorvusSurgeryUI.ActivateAll>
+  <CorvusSurgeryUI.NoSurgeriesQueued>No surgeries queued. Click 'Queue' on surgeries below to add them.</CorvusSurgeryUI.NoSurgeriesQueued>
+  <CorvusSurgeryUI.Queue>Queue</CorvusSurgeryUI.Queue>
+  <CorvusSurgeryUI.Unavailable>Unavailable</CorvusSurgeryUI.Unavailable>
+  <CorvusSurgeryUI.Suspend>Suspend</CorvusSurgeryUI.Suspend>
+  <CorvusSurgeryUI.Activate>Activate</CorvusSurgeryUI.Activate>
+  <CorvusSurgeryUI.Remove>Remove</CorvusSurgeryUI.Remove>
+  <CorvusSurgeryUI.Suspended>SUSPENDED</CorvusSurgeryUI.Suspended>
   
-  <!-- Status Messages -->
-  <CorvusSurgery_SurgeryQueued>Added {0} to surgery queue</CorvusSurgery_SurgeryQueued>
-  <CorvusSurgery_UseBillsButton>Use the 'Bills' button in the Health tab to manage queued surgeries</CorvusSurgery_UseBillsButton>
-  <CorvusSurgery_FromMods>From {0} mod(s)</CorvusSurgery_FromMods>
-  <CorvusSurgery_Target>Target: {0}</CorvusSurgery_Target>
-  <CorvusSurgery_Replaces>Replaces {0}</CorvusSurgery_Replaces>
+  <!-- Preset Management -->
+  <CorvusSurgeryUI.SavePreset>Save Preset</CorvusSurgeryUI.SavePreset>
+  <CorvusSurgeryUI.LoadPreset>Load</CorvusSurgeryUI.LoadPreset>
+  <CorvusSurgeryUI.NoPresets>No presets saved</CorvusSurgeryUI.NoPresets>
+  <CorvusSurgeryUI.PresetSaved>Preset '{0}' saved with {1} surgeries.</CorvusSurgeryUI.PresetSaved>
+  <CorvusSurgeryUI.PresetLoaded>Loaded preset '{0}': {1} surgeries.</CorvusSurgeryUI.PresetLoaded>
+  <CorvusSurgeryUI.PresetNotFound>Preset not found.</CorvusSurgeryUI.PresetNotFound>
+  <CorvusSurgeryUI.EnterPresetName>Enter preset name:</CorvusSurgeryUI.EnterPresetName>
+  <CorvusSurgeryUI.Cancel>Cancel</CorvusSurgeryUI.Cancel>
+  <CorvusSurgeryUI.Save>Save</CorvusSurgeryUI.Save>
   
-  <!-- Settings -->
-  <CorvusSurgery_SettingsTitle>Corvus Surgery UI Settings</CorvusSurgery_SettingsTitle>
-  <CorvusSurgery_EnableEnhancedUI>Enable Enhanced UI</CorvusSurgery_EnableEnhancedUI>
-  <CorvusSurgery_UIScaleLabel>UI Scale</CorvusSurgery_UIScaleLabel>
+  <!-- Messages -->
+  <CorvusSurgeryUI.NoValidPawns>No other valid pawns</CorvusSurgeryUI.NoValidPawns>
+  <CorvusSurgeryUI.CannotHaveSurgery>Selected pawn cannot have surgery.</CorvusSurgeryUI.CannotHaveSurgery>
+  <CorvusSurgeryUI.NoColonistAvailable>No colonist available for surgery planning.</CorvusSurgeryUI.NoColonistAvailable>
+  
+  <!-- Requirements -->
+  <CorvusSurgeryUI.NoRequirements>No requirements</CorvusSurgeryUI.NoRequirements>
+  <CorvusSurgeryUI.ResearchRequired>Research: {0}</CorvusSurgeryUI.ResearchRequired>
+  <CorvusSurgeryUI.SkillRequired>{0} {1} {2}</CorvusSurgeryUI.SkillRequired>
+  <CorvusSurgeryUI.ItemRequired>{0} {1} ({2}/{3})</CorvusSurgeryUI.ItemRequired>
+  
+  <!-- Availability Filters -->
+  <CorvusSurgeryUI.ShowAll>Show All</CorvusSurgeryUI.ShowAll>
+  <CorvusSurgeryUI.ShowAvailableOnly>Available Only</CorvusSurgeryUI.ShowAvailableOnly>
+  <CorvusSurgeryUI.MissingItem>Missing Item</CorvusSurgeryUI.MissingItem>
+  <CorvusSurgeryUI.MissingSkill>Missing Skill</CorvusSurgeryUI.MissingSkill>
 </LanguageData> 
