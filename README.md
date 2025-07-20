@@ -30,23 +30,46 @@ At Corvus Life Sciences, we understand that successful surgery requires more tha
 
 ## Features
 
--   **Dedicated "Plan" Button:** Adds a new "Plan" button to the pawn's Health tab, launching a dedicated, comprehensive UI.
--   **Complete Surgery List:** The planner intelligently generates a list of every possible surgery for the selected pawn by safely using the game's own internal logic, ensuring maximum compatibility.
--   **Advanced Filtering:**
-    -   **Search:** Quickly find a procedure by typing in its name.
-    -   **Category Filter:** Narrow down the list by type (e.g., Medical, Prosthetics, Implants, Removal, Amputation).
-    -   **Mod Filter:** See only surgeries added by a specific mod or DLC.
-    -   **Target Body Part Filter:** Display only the procedures that can be performed on a specific body part.
--   **Availability Toggle:** A "Show All" / "Show Available Only" toggle lets you instantly switch between viewing all possible surgeries and only the ones you have the skills, medicine, and materials for right now.
--   **Color-Coded Implant Warnings:** When choosing a procedure that will replace an existing implant, the UI provides an immediate, color-coded warning:
-    -   <span style="color:green">**Green:**</span> The new implant is a direct upgrade.
-    -   <span style="color:red">**Red:**</span> The new implant is a downgrade.
-    -   <span style="color:yellow">**Yellow:**</span> The change is a sidegrade or the difference is unclear.
--   **Detailed Information:** Each list item clearly displays the target body part, the mod it comes from, and a detailed breakdown of requirements.
+### Quick Access
+- **Keyboard Shortcut**: Press 'O' to instantly open the surgery planner for your selected pawn (or the first available colonist if none is selected)
+- **Dedicated "Plan" Button**: Adds a new "Plan" button to the pawn's Health tab for quick access
+
+### Comprehensive Interface
+- **Complete Surgery List**: Intelligently generates a list of every possible surgery for the selected pawn
+- **Quick Pawn Switching**: Easily switch between different colonists and animals without closing the planner
+- **Surgery Queue Management**: 
+  - Drag and drop to reorder surgeries
+  - Suspend/activate individual surgeries or all at once
+  - Clear visual feedback for suspended operations
+
+### Advanced Filtering
+- **Search**: Quickly find procedures by name or description
+- **Category Filter**: Narrow down by type (Medical, Prosthetics, Implants, Removal, Amputation)
+- **Mod Filter**: See only surgeries from a specific mod or DLC
+- **Target Body Part Filter**: Display procedures for specific body parts
+- **Availability Toggle**: Switch between all possible surgeries and currently available ones
+
+### Smart Features
+- **Surgery Presets**: Save and load common surgery combinations
+- **Auto-Suspension**: Automatically suspends surgeries that can't be performed yet
+- **Queue Non-Allowed**: Option to queue surgeries even when requirements aren't met
+- **Color-Coded Implant Warnings**:
+  - <span style="color:green">**Green:**</span> Direct upgrade
+  - <span style="color:red">**Red:**</span> Downgrade
+  - <span style="color:yellow">**Yellow:**</span> Sidegrade or unclear difference
+
+### Detailed Information
+- **Requirements Display**: Clear breakdown of needed research, skills, and materials
+- **Mod Source**: See which mod added each surgery
+- **Compatibility Info**: Visual indicators for surgery conflicts and replacements
+
+### Localization Support
+- **Full Translation Support**: All UI text is localizable
+- **Clear Structure**: Organized translation files for easy community contributions
 
 ## Compatibility
 
-This mod is designed for high compatibility and has been tested (in 1.5 as not all mods are avaliable in 1.6 yet) with a list of over 70 popular mods without any issues, including:
+This mod is designed for high compatibility and has been tested (in 1.5 as not all mods are available in 1.6 yet) with a list of over 70 popular mods without any issues, including:
 - EPOE and EPOE Forked
 - Vanilla Expanded Framework
 - Glitter Tech
@@ -58,24 +81,17 @@ Generally, this mod should be placed after any other mods that add new surgeries
 ## How It Works
 
 This mod uses Harmony to patch the game and C# Reflection to call RimWorld's internal `GenerateSurgeryOption` method. This approach has two key benefits:
-1.  **High Compatibility:** By relying on the game's own logic, it can correctly process surgeries from any other mod without needing specific patches or integrations.
-2.  **Robustness:** The calls are wrapped in error handling. If a different mod has a bug in one of its surgery recipes, Corvus Surgery UI will gracefully skip that single recipe and log a warning instead of crashing the game.
+1. **High Compatibility**: By relying on the game's own logic, it can correctly process surgeries from any other mod without needing specific patches or integrations.
+2. **Robustness**: The calls are wrapped in error handling. If a different mod has a bug in one of its surgery recipes, Corvus Surgery UI will gracefully skip that single recipe and log a warning instead of crashing the game.
 
 ## Installation
 
-1.  Subscribe to the mod on the Steam Workshop (link pending).
-2.  Alternatively, download the latest release from the GitHub repository.
-3.  Unzip the contents into your `RimWorld/Mods` folder.
-4.  Activate the mod in the in-game mod menu.
+1. Subscribe to the mod on the Steam Workshop (link pending)
+2. Alternatively, download the latest release from the GitHub repository
+3. Unzip the contents into your `RimWorld/Mods` folder
+4. Activate the mod in the in-game mod menu
 
 ## For Developers
-
-To build this mod from the source:
-1.  Clone the repository.
-2.  Ensure you have the .NET SDK installed.
-3.  Run `dotnet build` from within the `Source` directory. The compiled `CorvusSurgeryUI.dll` will be placed in the `Assemblies` folder.
-
-## Development
 
 ### Building the Mod
 
@@ -109,18 +125,19 @@ corvus-surgery-ui/
 └── README.md             # This file
 ```
 
-### Installation
-
-1. Subscribe to the mod on Steam Workshop (when published)
-2. Or manually copy the mod folder to your RimWorld/Mods directory
-3. Enable the mod in RimWorld's mod manager
-
-## Contributing
+### Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
 4. Submit a pull request
+
+### Translation
+Want to add a translation? It's easy:
+1. Copy the `Languages/English/Keyed/CorvusSurgeryUI_Keys.xml` file
+2. Create a new folder for your language under `Languages/`
+3. Translate the text between the XML tags
+4. Submit a pull request!
 
 ## License
 
