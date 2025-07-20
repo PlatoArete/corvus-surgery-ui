@@ -51,14 +51,14 @@ namespace CorvusSurgeryUI
 
                 var planButtonRect = new Rect(addBillButtonX + addBillButtonWidth + buttonSpacing, curY, planButtonWidth, buttonHeight);
 
-                if (Widgets.ButtonText(planButtonRect, "Plan"))
+                if (Widgets.ButtonText(planButtonRect, "CorvusSurgeryUI.PlanButton".Translate()))
                 {
                     var dialog = new Dialog_CorvusSurgeryPlanner(pawn, thingForMedBills);
                     Find.WindowStack.Add(dialog);
                 }
                 
                 // Add tooltip
-                TooltipHandler.TipRegion(planButtonRect, "Open enhanced surgery planning interface with filtering and mod compatibility (or press O)");
+                TooltipHandler.TipRegion(planButtonRect, "CorvusSurgeryUI.PlanButtonTooltip".Translate());
             }
             catch (Exception ex)
             {
@@ -243,7 +243,7 @@ namespace CorvusSurgeryUI
             
             // Search filter (top row)
             Rect searchLabelRect = new Rect(rect.x + 5f, currentY, 50f, 20f);
-            Widgets.Label(searchLabelRect, "Search:");
+            Widgets.Label(searchLabelRect, "CorvusSurgeryUI.Search".Translate());
             
             Rect searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 180f, 25f);
             string newFilter = Widgets.TextField(searchRect, searchFilter);
@@ -255,16 +255,17 @@ namespace CorvusSurgeryUI
 
             // Category filter (top row, continued)
             Rect categoryLabelRect = new Rect(searchRect.xMax + 15f, currentY, 60f, 20f);
-            Widgets.Label(categoryLabelRect, "Category:");
+            Widgets.Label(categoryLabelRect, "CorvusSurgeryUI.Category".Translate());
             
             Rect categoryRect = new Rect(categoryLabelRect.xMax + 5f, currentY, 120f, 25f);
-            if (Widgets.ButtonText(categoryRect, selectedCategory.ToString()))
+            if (Widgets.ButtonText(categoryRect, ("CorvusSurgeryUI.Category." + selectedCategory.ToString()).Translate()))
             {
                 List<FloatMenuOption> options = new List<FloatMenuOption>();
                 foreach (SurgeryCategory category in Enum.GetValues(typeof(SurgeryCategory)))
                 {
                     var count = allPawnSurgeries?.Count(s => category == SurgeryCategory.All || s.Category == category) ?? 0;
-                    options.Add(new FloatMenuOption($"{category} ({count})", () => {
+                    string categoryKey = category == SurgeryCategory.All ? "CorvusSurgeryUI.All" : "CorvusSurgeryUI.Category." + category.ToString();
+                    options.Add(new FloatMenuOption($"{categoryKey.Translate()} ({count})", () => {
                         selectedCategory = category;
                         ApplyFilters();
                     }));
@@ -274,10 +275,11 @@ namespace CorvusSurgeryUI
 
             // Mod source filter
             Rect modLabelRect = new Rect(categoryRect.xMax + 15f, currentY, 40f, 20f);
-            Widgets.Label(modLabelRect, "Mod:");
+            Widgets.Label(modLabelRect, "CorvusSurgeryUI.Mod".Translate());
             
             Rect modButtonRect = new Rect(modLabelRect.xMax + 5f, currentY, 150f, 25f);
-            if (Widgets.ButtonText(modButtonRect, selectedModFilter))
+            string modButtonText = selectedModFilter == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : selectedModFilter;
+            if (Widgets.ButtonText(modButtonRect, modButtonText))
             {
                 List<FloatMenuOption> options = new List<FloatMenuOption>();
                 foreach (string modName in availableMods)
@@ -292,7 +294,8 @@ namespace CorvusSurgeryUI
                         count = allPawnSurgeries.Count(s => (s.Recipe?.modContentPack?.Name ?? "Core") == modName);
                     }
                     
-                    options.Add(new FloatMenuOption($"{modName} ({count})", () => {
+                    string displayName = modName == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : modName;
+                    options.Add(new FloatMenuOption($"{displayName} ({count})", () => {
                         selectedModFilter = modName;
                         ApplyFilters();
                     }));
@@ -302,7 +305,7 @@ namespace CorvusSurgeryUI
 
             // Target Body Part filter
             Rect targetLabelRect = new Rect(modButtonRect.xMax + 15f, currentY, 50f, 20f);
-            Widgets.Label(targetLabelRect, "Target:");
+            Widgets.Label(targetLabelRect, "CorvusSurgeryUI.Target".Translate());
             
             Rect targetButtonRect = new Rect(targetLabelRect.xMax + 5f, currentY, 150f, 25f);
             string targetButtonLabel = selectedTargetPart?.LabelCap ?? "All";
@@ -353,6 +356,7 @@ namespace CorvusSurgeryUI
                         {
                             // Switch to the new pawn
                             pawn = possiblePawn;
+                            thingForMedBills = possiblePawn;  // Update thingForMedBills to the new pawn
                             // Rebuild surgery list for new pawn
                             BuildFullSurgeryList();
                             PopulateAvailableTargets();
