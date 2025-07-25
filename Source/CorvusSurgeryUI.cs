@@ -258,7 +258,10 @@ namespace CorvusSurgeryUI
             Widgets.Label(categoryLabelRect, "CorvusSurgeryUI.Category".Translate());
             
             Rect categoryRect = new Rect(categoryLabelRect.xMax + 5f, currentY, 120f, 25f);
-            if (Widgets.ButtonText(categoryRect, ("CorvusSurgeryUI.Category." + selectedCategory.ToString()).Translate()))
+            string buttonText = selectedCategory == SurgeryCategory.All ? 
+                "CorvusSurgeryUI.All".Translate() : 
+                ("CorvusSurgeryUI.Category." + selectedCategory.ToString()).Translate();
+            if (Widgets.ButtonText(categoryRect, buttonText))
             {
                 List<FloatMenuOption> options = new List<FloatMenuOption>();
                 foreach (SurgeryCategory category in Enum.GetValues(typeof(SurgeryCategory)))
