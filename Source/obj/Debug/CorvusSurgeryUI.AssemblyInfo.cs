@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CorvusSurgeryUI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+78db368e3d4ff600cf053dd0d8166534a4cefbd3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bab5584124ceb943b2c7a402d059211f1cd1789b")]
 [assembly: System.Reflection.AssemblyProductAttribute("CorvusSurgeryUI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CorvusSurgeryUI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

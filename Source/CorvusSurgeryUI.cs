@@ -1427,7 +1427,7 @@ namespace CorvusSurgeryUI
             
             foreach (var surgery in filteredSurgeries)
             {
-                // Check if surgery targets this specific body part
+                // Check if surgery targets this specific body part or its children
                 if (surgery.BodyPart != null && clickedActualBodyPart != null)
                 {
                     // Direct match: surgery targets the exact body part that was clicked
@@ -1435,68 +1435,66 @@ namespace CorvusSurgeryUI
                     {
                         relevantSurgeries.Add(surgery);
                     }
+                    // Hierarchical match: surgery targets a child/descendant of the clicked body part
+                    else if (IsChildOf(surgery.BodyPart, clickedActualBodyPart))
+                    {
+                        // For torso clicks, exclude limbs and extremities
+                        if (bodyPartRegion.SvgId.ToLower() == "torso")
+                        {
+                            var bodyPartDefName = surgery.BodyPart.def.defName.ToLower();
+                            
+                            // Skip limbs and extremities when clicking torso
+                            if (bodyPartDefName.Contains("arm") || bodyPartDefName.Contains("leg") || 
+                                bodyPartDefName.Contains("hand") || bodyPartDefName.Contains("foot") ||
+                                bodyPartDefName.Contains("finger") || bodyPartDefName.Contains("toe") ||
+                                bodyPartDefName.Contains("shoulder") || bodyPartDefName.Contains("jaw"))
+                            {
+                                continue; // Skip this surgery
+                            }
+                        }
+                        
+                        relevantSurgeries.Add(surgery);
+                    }
                 }
+                // Additional fallback: For complex body regions (ribcage/torso), also check by name matching
+                // This helps catch surgeries that might not follow the exact hierarchy
                 else if (bodyPartRegion.IsSubPart && bodyPartRegion.SubParts != null)
                 {
                     // For sub-parts like ribcage/torso, check if surgery affects internal organs
                     foreach (var subPart in bodyPartRegion.SubParts)
                     {
-                        bool surgeryMatches = false;
-                        
-                        // Check surgery recipe names and labels
-                        if (!string.IsNullOrEmpty(surgery.Recipe?.defName) && 
-                            surgery.Recipe.defName.ToLower().Contains(subPart.ToLower()))
-                        {
-                            surgeryMatches = true;
-                        }
-                        
-                        if (!surgeryMatches && !string.IsNullOrEmpty(surgery.Recipe?.label) && 
-                            surgery.Recipe.label.ToLower().Contains(subPart.ToLower()))
-                        {
-                            surgeryMatches = true;
-                        }
-                        
-                        if (!surgeryMatches && !string.IsNullOrEmpty(surgery.Label) && 
-                            surgery.Label.ToLower().Contains(subPart.ToLower()))
-                        {
-                            surgeryMatches = true;
-                        }
-                        
-                        // Check if the surgery's body part matches any sub-part by name
-                        if (!surgeryMatches && surgery.BodyPart != null)
+                        if (surgery.BodyPart != null)
                         {
                             var partDefName = surgery.BodyPart.def.defName.ToLower();
                             var partLabel = surgery.BodyPart.def.label?.ToLower() ?? "";
                             
-                            if (partDefName.Contains(subPart.ToLower()) || 
-                                subPart.ToLower().Contains(partDefName) ||
-                                partLabel.Contains(subPart.ToLower()) || 
-                                subPart.ToLower().Contains(partLabel))
-                            {
-                                surgeryMatches = true;
-                            }
-                        }
-                        
-                        // Also check for common organ name variations
-                        if (!surgeryMatches)
-                        {
+                            // Check if the surgery's body part name matches expected sub-part names
                             var organVariations = GetOrganNameVariations(subPart.ToLower());
+                            bool matchFound = false;
+                            
                             foreach (var variation in organVariations)
                             {
-                                if ((!string.IsNullOrEmpty(surgery.Label) && surgery.Label.ToLower().Contains(variation)) ||
-                                    (!string.IsNullOrEmpty(surgery.Recipe?.label) && surgery.Recipe.label.ToLower().Contains(variation)) ||
-                                    (!string.IsNullOrEmpty(surgery.Recipe?.defName) && surgery.Recipe.defName.ToLower().Contains(variation)))
+                                if (partDefName.Contains(variation) || partLabel.Contains(variation))
                                 {
-                                    surgeryMatches = true;
+                                    // For torso clicks, still exclude limbs even in name-based matching
+                                    if (bodyPartRegion.SvgId.ToLower() == "torso")
+                                    {
+                                        if (partDefName.Contains("arm") || partDefName.Contains("leg") || 
+                                            partDefName.Contains("hand") || partDefName.Contains("foot") ||
+                                            partDefName.Contains("finger") || partDefName.Contains("toe") ||
+                                            partDefName.Contains("shoulder") || partDefName.Contains("jaw"))
+                                        {
+                                            break; // Skip this surgery
+                                        }
+                                    }
+                                    
+                                    relevantSurgeries.Add(surgery);
+                                    matchFound = true;
                                     break;
                                 }
                             }
-                        }
-                        
-                        if (surgeryMatches)
-                        {
-                            relevantSurgeries.Add(surgery);
-                            break; // Don't add the same surgery multiple times
+                            
+                            if (matchFound) break; // Don't add the same surgery multiple times
                         }
                     }
                 }
@@ -1511,12 +1509,35 @@ namespace CorvusSurgeryUI
                     // Check for general body region matches
                     if (recipeName.Contains(regionName) || recipeLabel.Contains(regionName))
                     {
+                        // For torso clicks, exclude limbs even from general recipe matching
+                        if (regionName == "torso" && surgery.BodyPart != null)
+                        {
+                            var bodyPartDefName = surgery.BodyPart.def.defName.ToLower();
+                            
+                            if (bodyPartDefName.Contains("arm") || bodyPartDefName.Contains("leg") || 
+                                bodyPartDefName.Contains("hand") || bodyPartDefName.Contains("foot") ||
+                                bodyPartDefName.Contains("finger") || bodyPartDefName.Contains("toe") ||
+                                bodyPartDefName.Contains("shoulder") || bodyPartDefName.Contains("jaw"))
+                            {
+                                continue; // Skip this surgery
+                            }
+                        }
+                        
                         relevantSurgeries.Add(surgery);
                     }
                 }
             }
             
             return relevantSurgeries;
+        }
+        
+        private bool IsChildOf(BodyPartRecord childPart, BodyPartRecord potentialParent)
+        {
+            if (childPart == null || potentialParent == null) return false;
+            
+            // Only check direct children, not all descendants
+            // This prevents arms/legs from showing up when clicking torso
+            return childPart.parent == potentialParent;
         }
         
         private List<string> GetOrganNameVariations(string organName)
@@ -3752,15 +3773,11 @@ namespace CorvusSurgeryUI
             bodyParts["right-foot"] = new BodyPartRegion("right-foot", "Foot", 1, new Rect(540, 650, 50, 30));
             
             // Sub-containers for internal organs
-            bodyParts["ribcage"] = new BodyPartRegion("ribcage", "Ribcage", -1, new Rect(450, 195, 100, 75));
             bodyParts["spine"] = new BodyPartRegion("spine", "Spine", -1, new Rect(495, 190, 10, 180));
 
             // Set up sub-parts for complex regions
-            bodyParts["ribcage"].IsSubPart = true;
-            bodyParts["ribcage"].SubParts.AddRange(new[] { "Lung", "Heart", "Rib" }); // Ribcage contains heart, lungs, ribs
-            
             bodyParts["torso"].IsSubPart = true;
-            bodyParts["torso"].SubParts.AddRange(new[] { "Liver", "Kidney", "Stomach" }); // Torso contains liver, kidneys, stomach
+            bodyParts["torso"].SubParts.AddRange(new[] { "Liver", "Kidney", "Stomach", "Lung", "Heart", "Rib" }); // Torso contains all internal organs
         }
 
         public Dictionary<string, BodyPartRegion> GetBodyParts() => bodyParts;
