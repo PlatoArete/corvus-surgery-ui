@@ -37,13 +37,47 @@
   <!-- Preset Management -->
   <CorvusSurgeryUI.SavePreset>Save Preset</CorvusSurgeryUI.SavePreset>
   <CorvusSurgeryUI.LoadPreset>Load</CorvusSurgeryUI.LoadPreset>
+  <CorvusSurgeryUI.Apply>Apply</CorvusSurgeryUI.Apply>
+  <CorvusSurgeryUI.Import>Import</CorvusSurgeryUI.Import>
+  <CorvusSurgeryUI.Export>Export</CorvusSurgeryUI.Export>
+  <CorvusSurgeryUI.Select>Select...</CorvusSurgeryUI.Select>
   <CorvusSurgeryUI.NoPresets>No presets saved</CorvusSurgeryUI.NoPresets>
+  <CorvusSurgeryUI.NoPresetsAvailable>(no presets)</CorvusSurgeryUI.NoPresetsAvailable>
   <CorvusSurgeryUI.PresetSaved>Preset '{0}' saved with {1} surgeries.</CorvusSurgeryUI.PresetSaved>
   <CorvusSurgeryUI.PresetLoaded>Loaded preset '{0}': {1} surgeries.</CorvusSurgeryUI.PresetLoaded>
   <CorvusSurgeryUI.PresetNotFound>Preset not found.</CorvusSurgeryUI.PresetNotFound>
   <CorvusSurgeryUI.EnterPresetName>Enter preset name:</CorvusSurgeryUI.EnterPresetName>
   <CorvusSurgeryUI.Cancel>Cancel</CorvusSurgeryUI.Cancel>
   <CorvusSurgeryUI.Save>Save</CorvusSurgeryUI.Save>
+  
+  <!-- Presets Tab -->
+  <CorvusSurgeryUI.SurgeryPresets>Surgery Presets - {0} eligible pawns</CorvusSurgeryUI.SurgeryPresets>
+  <CorvusSurgeryUI.ApplyToPawns>Apply to {0} pawns:</CorvusSurgeryUI.ApplyToPawns>
+  <CorvusSurgeryUI.Preset>Preset:</CorvusSurgeryUI.Preset>
+  
+  <!-- Pawn Categories -->
+  <CorvusSurgeryUI.Colonists>Colonists</CorvusSurgeryUI.Colonists>
+  <CorvusSurgeryUI.Prisoners>Prisoners</CorvusSurgeryUI.Prisoners>
+  <CorvusSurgeryUI.Slaves>Slaves</CorvusSurgeryUI.Slaves>
+  <CorvusSurgeryUI.Animals>Animals</CorvusSurgeryUI.Animals>
+  <CorvusSurgeryUI.Guests>Guests</CorvusSurgeryUI.Guests>
+  
+  <!-- Pawn Status -->
+  <CorvusSurgeryUI.Colonist>Colonist</CorvusSurgeryUI.Colonist>
+  <CorvusSurgeryUI.Prisoner>Prisoner</CorvusSurgeryUI.Prisoner>
+  <CorvusSurgeryUI.Slave>Slave</CorvusSurgeryUI.Slave>
+  <CorvusSurgeryUI.Animal>Animal</CorvusSurgeryUI.Animal>
+  <CorvusSurgeryUI.Guest>Guest</CorvusSurgeryUI.Guest>
+  <CorvusSurgeryUI.Unknown>Unknown</CorvusSurgeryUI.Unknown>
+  
+  <!-- Preset Application Messages -->
+  <CorvusSurgeryUI.PresetAppliedToPawn>Applied preset '{0}' to {1}: {2} surgeries added.</CorvusSurgeryUI.PresetAppliedToPawn>
+  <CorvusSurgeryUI.PresetAppliedToPawnWithSkipped>Applied preset '{0}' to {1}: {2} surgeries added ({3} skipped - incompatible with this pawn type).</CorvusSurgeryUI.PresetAppliedToPawnWithSkipped>
+  <CorvusSurgeryUI.PresetAppliedToAllPawns>Applied preset '{0}' to {1} pawns: {2} surgeries added.</CorvusSurgeryUI.PresetAppliedToAllPawns>
+  <CorvusSurgeryUI.PresetAppliedToAllPawnsWithSkipped>Applied preset '{0}' to {1} pawns: {2} surgeries added ({3} skipped - incompatible with pawn types).</CorvusSurgeryUI.PresetAppliedToAllPawnsWithSkipped>
+  <CorvusSurgeryUI.PresetLoadedWithSkipped>Loaded preset '{0}': {1} surgeries ({2} skipped - incompatible with this pawn type).</CorvusSurgeryUI.PresetLoadedWithSkipped>
+  <CorvusSurgeryUI.ErrorApplyingPreset>Error applying preset to pawn.</CorvusSurgeryUI.ErrorApplyingPreset>
+  <CorvusSurgeryUI.ErrorApplyingPresetToPawns>Error applying preset to pawns.</CorvusSurgeryUI.ErrorApplyingPresetToPawns>
   
   <!-- Messages -->
   <CorvusSurgeryUI.NoValidPawns>No other valid pawns</CorvusSurgeryUI.NoValidPawns>

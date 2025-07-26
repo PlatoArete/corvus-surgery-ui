@@ -1,13 +1,14 @@
 {
   "version": 2,
-  "dgSpecHash": "PdTlGYOqGrAV7yJN9GwHbLBLPYYKSV0XCsYV86hb+OIjTTHK2P/pUfFqTRO7K8buX1VWMkBwa7fmG7Wxzg9JHA==",
+  "dgSpecHash": "0Jv9OxP/Ec/JlkyVlesS5dDuXq9FOLIZObqzGLCEI/fvlgJerl+V9mEFdt5lTTco4Z50xKOar/N8N+yVqS2USw==",
   "success": true,
   "projectFilePath": "C:\\Users\\andre\\Local Repos\\corvus-surgery-ui\\Source\\CorvusSurgeryUI.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\andre\\.nuget\\packages\\krafs.rimworld.ref\\1.5.4104\\krafs.rimworld.ref.1.5.4104.nupkg.sha512",
     "C:\\Users\\andre\\.nuget\\packages\\lib.harmony\\2.2.2\\lib.harmony.2.2.2.nupkg.sha512",
     "C:\\Users\\andre\\.nuget\\packages\\microsoft.netframework.referenceassemblies\\1.0.3\\microsoft.netframework.referenceassemblies.1.0.3.nupkg.sha512",
-    "C:\\Users\\andre\\.nuget\\packages\\microsoft.netframework.referenceassemblies.net48\\1.0.3\\microsoft.netframework.referenceassemblies.net48.1.0.3.nupkg.sha512"
+    "C:\\Users\\andre\\.nuget\\packages\\microsoft.netframework.referenceassemblies.net48\\1.0.3\\microsoft.netframework.referenceassemblies.net48.1.0.3.nupkg.sha512",
+    "C:\\Users\\andre\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512"
   ],
   "logs": []
 }

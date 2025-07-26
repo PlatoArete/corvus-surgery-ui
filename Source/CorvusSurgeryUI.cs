@@ -1,29 +1,624 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Xml;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
 using Verse;
 using System.Reflection;
+using System.IO;
+using Newtonsoft.Json;
 
 namespace CorvusSurgeryUI
 {
-    [StaticConstructorOnStartup]
-    public static class CorvusSurgeryUIMod
+    // New persistent preset system
+    public class PersistentSurgeryPreset
     {
-        static CorvusSurgeryUIMod()
+        public string Name { get; set; }
+        public string SaveIdentifier { get; set; }
+        public string SaveDisplayName { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public List<SurgeryPresetItem> Items { get; set; }
+        public bool IsValid { get; set; } = true;
+        public List<string> ValidationErrors { get; set; } = new List<string>();
+        
+        public PersistentSurgeryPreset()
         {
-            var harmony = new Harmony("corvus.surgery.ui");
+            Items = new List<SurgeryPresetItem>();
+            CreatedAt = DateTime.Now;
+        }
+    }
+
+    public class SurgeryPresetManager
+    {
+        private static SurgeryPresetManager instance;
+        private static readonly string presetsFolder = Path.Combine(GenFilePaths.ConfigFolderPath, "CorvusSurgeryUI", "Presets");
+        private static readonly string presetsFile = Path.Combine(presetsFolder, "SurgeryPresets.json");
+        
+        private Dictionary<string, PersistentSurgeryPreset> allPresets = new Dictionary<string, PersistentSurgeryPreset>();
+        private Dictionary<string, PersistentSurgeryPreset> currentSavePresets = new Dictionary<string, PersistentSurgeryPreset>();
+        private string currentSaveId = "";
+        private bool presetsLoaded = false;
+
+        public static SurgeryPresetManager Instance
+        {
+            get
+            {
+                if (instance == null)
+                {
+                    instance = new SurgeryPresetManager();
+                }
+                return instance;
+            }
+        }
+
+        private SurgeryPresetManager()
+        {
+            EnsureDirectoryExists();
+        }
+
+        private void EnsureDirectoryExists()
+        {
+            try
+            {
+                if (!Directory.Exists(presetsFolder))
+                {
+                    Directory.CreateDirectory(presetsFolder);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to create presets directory: {ex}");
+            }
+        }
+
+        public void LoadPresets()
+        {
+            if (presetsLoaded) return;
+            
+            try
+            {
+                if (File.Exists(presetsFile))
+                {
+                    var json = File.ReadAllText(presetsFile);
+                    var presetList = JsonConvert.DeserializeObject<List<PersistentSurgeryPreset>>(json) ?? new List<PersistentSurgeryPreset>();
+                    
+                    allPresets.Clear();
+                    foreach (var preset in presetList)
+                    {
+                        allPresets[GetPresetKey(preset.Name, preset.SaveIdentifier)] = preset;
+                    }
+                    
+                    Log.Message($"Corvus Surgery UI: Loaded {allPresets.Count} presets from disk");
+                }
+                else
+                {
+                    allPresets.Clear();
+                }
+                
+                presetsLoaded = true;
+                UpdateCurrentSavePresets();
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to load presets: {ex}");
+                allPresets.Clear();
+                presetsLoaded = true;
+            }
+        }
+
+        public void SavePresets()
+        {
+            try
+            {
+                var presetList = allPresets.Values.ToList();
+                var json = JsonConvert.SerializeObject(presetList, Newtonsoft.Json.Formatting.Indented);
+                File.WriteAllText(presetsFile, json);
+                Log.Message($"Corvus Surgery UI: Saved {presetList.Count} presets to disk");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to save presets: {ex}");
+            }
+        }
+
+        public string GetCurrentSaveIdentifier()
+        {
+            try
+            {
+                if (Current.Game?.World?.info != null)
+                {
+                    var worldInfo = Current.Game.World.info;
+                    // Create a unique identifier using world name and seed
+                    return $"{worldInfo.name}_{worldInfo.seedString}";
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Could not get world info for save identifier: {ex}");
+            }
+            
+            // Fallback identifier
+            return "unknown_save";
+        }
+
+        public string GetCurrentSaveDisplayName()
+        {
+            try
+            {
+                if (Current.Game?.World?.info != null)
+                {
+                    return Current.Game.World.info.name;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Could not get world name: {ex}");
+            }
+            
+            return "Unknown Save";
+        }
+
+        private void UpdateCurrentSavePresets()
+        {
+            currentSaveId = GetCurrentSaveIdentifier();
+            currentSavePresets.Clear();
+            
+            foreach (var kvp in allPresets)
+            {
+                if (kvp.Value.SaveIdentifier == currentSaveId)
+                {
+                    currentSavePresets[kvp.Value.Name] = kvp.Value;
+                }
+            }
+            
+            Log.Message($"Corvus Surgery UI: Loaded {currentSavePresets.Count} presets for current save");
+        }
+
+        public void RefreshCurrentSave()
+        {
+            var newSaveId = GetCurrentSaveIdentifier();
+            if (newSaveId != currentSaveId)
+            {
+                UpdateCurrentSavePresets();
+            }
+        }
+
+        public Dictionary<string, PersistentSurgeryPreset> GetCurrentSavePresets()
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            return new Dictionary<string, PersistentSurgeryPreset>(currentSavePresets);
+        }
+
+        public Dictionary<string, List<PersistentSurgeryPreset>> GetPresetsBySave()
+        {
+            if (!presetsLoaded) LoadPresets();
+            
+            var result = new Dictionary<string, List<PersistentSurgeryPreset>>();
+            foreach (var preset in allPresets.Values)
+            {
+                if (!result.ContainsKey(preset.SaveIdentifier))
+                {
+                    result[preset.SaveIdentifier] = new List<PersistentSurgeryPreset>();
+                }
+                result[preset.SaveIdentifier].Add(preset);
+            }
+            
+            return result;
+        }
+
+        public void SavePreset(string name, List<SurgeryPresetItem> items, Action onConfirm = null)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            var newPreset = new PersistentSurgeryPreset
+            {
+                Name = name,
+                SaveIdentifier = currentSaveId,
+                SaveDisplayName = GetCurrentSaveDisplayName(),
+                Items = new List<SurgeryPresetItem>(items),
+                CreatedAt = DateTime.Now
+            };
+            
+            // Check for global duplicates (same name + content)
+            var existingDuplicate = FindGlobalDuplicate(newPreset);
+            if (existingDuplicate != null)
+            {
+                // Show confirmation dialog
+                Find.WindowStack.Add(new Dialog_OverwriteConfirmation(
+                    name, 
+                    existingDuplicate.SaveDisplayName,
+                    () => {
+                        // User confirmed overwrite
+                        SavePresetInternal(newPreset);
+                        onConfirm?.Invoke();
+                    },
+                    onConfirm // User cancelled
+                ));
+                return;
+            }
+            
+            // No duplicate found, save directly
+            SavePresetInternal(newPreset);
+            onConfirm?.Invoke();
+        }
+        
+        private void SavePresetInternal(PersistentSurgeryPreset preset)
+        {
+            ValidatePreset(preset);
+            
+            var key = GetPresetKey(preset.Name, preset.SaveIdentifier);
+            allPresets[key] = preset;
+            currentSavePresets[preset.Name] = preset;
+            
+            SavePresets();
+            
+            string message = preset.IsValid 
+                ? $"Preset '{preset.Name}' saved globally (tagged for this save) with {preset.Items.Count} surgeries."
+                : $"Preset '{preset.Name}' saved with warnings - some surgeries may be invalid.";
+            Messages.Message(message, MessageTypeDefOf.PositiveEvent);
+        }
+        
+        private PersistentSurgeryPreset FindGlobalDuplicate(PersistentSurgeryPreset newPreset)
+        {
+            foreach (var existingPreset in allPresets.Values)
+            {
+                if (existingPreset.Name == newPreset.Name && 
+                    ArePresetItemsEqual(existingPreset.Items, newPreset.Items))
+                {
+                    return existingPreset;
+                }
+            }
+            return null;
+        }
+        
+        private bool ArePresetItemsEqual(List<SurgeryPresetItem> items1, List<SurgeryPresetItem> items2)
+        {
+            if (items1.Count != items2.Count) return false;
+            
+            // Sort both lists for comparison (by recipe name then body part)
+            var sorted1 = items1.OrderBy(i => i.RecipeDefName).ThenBy(i => i.BodyPartLabel).ToList();
+            var sorted2 = items2.OrderBy(i => i.RecipeDefName).ThenBy(i => i.BodyPartLabel).ToList();
+            
+            for (int i = 0; i < sorted1.Count; i++)
+            {
+                if (sorted1[i].RecipeDefName != sorted2[i].RecipeDefName ||
+                    sorted1[i].BodyPartLabel != sorted2[i].BodyPartLabel ||
+                    sorted1[i].IsSuspended != sorted2[i].IsSuspended)
+                {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
+        public bool LoadPreset(string name, Pawn pawn, Thing thingForMedBills)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            if (!currentSavePresets.ContainsKey(name))
+            {
+                Messages.Message("CorvusSurgeryUI.PresetNotFound".Translate(), MessageTypeDefOf.RejectInput);
+                return false;
+            }
+            
+            var preset = currentSavePresets[name];
+            ValidatePreset(preset); // Re-validate before loading
+            
+            // Clear current bills
+            if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
+            {
+                var billsToRemove = billGiver.BillStack.Bills.OfType<Bill_Medical>().ToList();
+                foreach (var bill in billsToRemove)
+                {
+                    billGiver.BillStack.Delete(bill);
+                }
+            }
+            
+            // Load valid preset items (skip invalid ones)
+            int loadedCount = 0;
+            int skippedCount = 0;
+            
+            foreach (var item in preset.Items)
+            {
+                var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                if (recipe == null)
+                {
+                    skippedCount++;
+                    continue; // Skip missing recipes
+                }
+                
+                // Validate if this surgery is applicable to this specific pawn
+                if (!IsRecipeValidForPawn(recipe, pawn, item))
+                {
+                    skippedCount++;
+                    continue; // Skip invalid surgeries for this pawn
+                }
+                
+                BodyPartRecord bodyPart = null;
+                if (!item.BodyPartLabel.NullOrEmpty())
+                {
+                    bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                }
+                
+                // Create and add bill
+                if (thingForMedBills is IBillGiver billGiver2 && billGiver2.BillStack != null)
+                {
+                    var bill = new Bill_Medical(recipe, null);
+                    bill.Part = bodyPart;
+                    bill.suspended = item.IsSuspended;
+                    billGiver2.BillStack.AddBill(bill);
+                    loadedCount++;
+                }
+            }
+            
+            string message = skippedCount == 0 
+                ? "CorvusSurgeryUI.PresetLoaded".Translate(name, loadedCount)
+                : "CorvusSurgeryUI.PresetLoadedWithSkipped".Translate(name, loadedCount, skippedCount);
+            
+            var messageType = skippedCount == 0 ? MessageTypeDefOf.PositiveEvent : MessageTypeDefOf.CautionInput;
+            Messages.Message(message, messageType);
+            
+            return true;
+        }
+
+        public void DeletePreset(string name)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            if (currentSavePresets.ContainsKey(name))
+            {
+                var key = GetPresetKey(name, currentSaveId);
+                allPresets.Remove(key);
+                currentSavePresets.Remove(name);
+                SavePresets();
+                Messages.Message($"Preset '{name}' deleted.", MessageTypeDefOf.PositiveEvent);
+            }
+        }
+
+        public void ImportPresetFromOtherSave(string presetName, string sourceSaveId)
+        {
+            if (!presetsLoaded) LoadPresets();
+            
+            var sourceKey = GetPresetKey(presetName, sourceSaveId);
+            if (allPresets.ContainsKey(sourceKey))
+            {
+                var sourcePreset = allPresets[sourceKey];
+                var newPreset = new PersistentSurgeryPreset
+                {
+                    Name = presetName,
+                    SaveIdentifier = GetCurrentSaveIdentifier(),
+                    SaveDisplayName = GetCurrentSaveDisplayName(),
+                    Items = new List<SurgeryPresetItem>(sourcePreset.Items),
+                    CreatedAt = DateTime.Now
+                };
+                
+                ValidatePreset(newPreset);
+                
+                var newKey = GetPresetKey(presetName, newPreset.SaveIdentifier);
+                allPresets[newKey] = newPreset;
+                currentSavePresets[presetName] = newPreset;
+                
+                SavePresets();
+                Messages.Message($"Imported preset '{presetName}' from {sourcePreset.SaveDisplayName}.", MessageTypeDefOf.PositiveEvent);
+            }
+        }
+
+        public void ExportPreset(string presetName, string filePath)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            if (currentSavePresets.ContainsKey(presetName))
+            {
+                try
+                {
+                    var preset = currentSavePresets[presetName];
+                    var exportData = new
+                    {
+                        PresetName = preset.Name,
+                        CreatedAt = preset.CreatedAt,
+                        OriginalSave = preset.SaveDisplayName,
+                        Items = preset.Items
+                    };
+                    
+                    var json = JsonConvert.SerializeObject(exportData, Newtonsoft.Json.Formatting.Indented);
+                    File.WriteAllText(filePath, json);
+                    Messages.Message($"Preset '{presetName}' exported to {filePath}.", MessageTypeDefOf.PositiveEvent);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Corvus Surgery UI: Failed to export preset: {ex}");
+                    Messages.Message("Failed to export preset.", MessageTypeDefOf.RejectInput);
+                }
+            }
+        }
+
+        public void ImportPreset(string filePath)
+        {
+            try
+            {
+                var json = File.ReadAllText(filePath);
+                var importData = JsonConvert.DeserializeAnonymousType(json, new
+                {
+                    PresetName = "",
+                    CreatedAt = DateTime.Now,
+                    OriginalSave = "",
+                    Items = new List<SurgeryPresetItem>()
+                });
+                
+                var preset = new PersistentSurgeryPreset
+                {
+                    Name = importData.PresetName,
+                    SaveIdentifier = GetCurrentSaveIdentifier(),
+                    SaveDisplayName = GetCurrentSaveDisplayName(),
+                    Items = importData.Items,
+                    CreatedAt = DateTime.Now
+                };
+                
+                ValidatePreset(preset);
+                
+                var key = GetPresetKey(preset.Name, preset.SaveIdentifier);
+                allPresets[key] = preset;
+                currentSavePresets[preset.Name] = preset;
+                
+                SavePresets();
+                Messages.Message($"Imported preset '{preset.Name}' from {importData.OriginalSave}.", MessageTypeDefOf.PositiveEvent);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to import preset: {ex}");
+                Messages.Message("Failed to import preset. Please check file format.", MessageTypeDefOf.RejectInput);
+            }
+        }
+
+        public void ValidatePreset(PersistentSurgeryPreset preset)
+        {
+            preset.IsValid = true;
+            preset.ValidationErrors.Clear();
+            
+            foreach (var item in preset.Items)
+            {
+                var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                if (recipe == null)
+                {
+                    preset.IsValid = false;
+                    preset.ValidationErrors.Add($"Missing recipe: {item.RecipeDefName}");
+                }
+            }
+        }
+
+        private BodyPartRecord FindBodyPart(string bodyPartLabel, Pawn pawn)
+        {
+            if (bodyPartLabel.NullOrEmpty()) return null;
+            
+            var parts = bodyPartLabel.Split('|');
+            if (parts.Length != 2) return null;
+            
+            var defName = parts[0];
+            if (!int.TryParse(parts[1], out int index)) return null;
+            
+            // Find the body part by def name and index
+            foreach (var part in pawn.health.hediffSet.GetNotMissingParts())
+            {
+                if (part.def.defName == defName && part.Index == index)
+                {
+                    return part;
+                }
+            }
+            
+            return null;
+        }
+
+        private bool IsRecipeValidForPawn(RecipeDef recipe, Pawn pawn, SurgeryPresetItem item)
+        {
+            try
+            {
+                // Check if recipe is a surgery
+                if (!recipe.IsSurgery) return false;
+                
+                // Check research requirements
+                if ((recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished) || 
+                    (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any(r => !r.IsFinished)))
+                {
+                    return false;
+                }
+                
+                // Check recipe availability report - this is the main check for pawn compatibility
+                var report = recipe.Worker.AvailableReport(pawn);
+                if (!report.Accepted && !report.Reason.NullOrEmpty()) 
+                {
+                    return false;
+                }
+                
+                // For targeted surgeries, check if it's available on the specific body part
+                if (recipe.targetsBodyPart)
+                {
+                    BodyPartRecord bodyPart = null;
+                    if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                    }
+                    
+                    if (bodyPart != null)
+                    {
+                        // Check if surgery is available on this specific body part
+                        if (!recipe.AvailableOnNow(pawn, bodyPart))
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        // Body part was specified but not found on this pawn
+                        return false;
+                    }
+                }
+                
+                // For non-targeted surgeries that add hediffs, check if pawn already has the hediff
+                if (!recipe.targetsBodyPart && recipe.addsHediff != null)
+                {
+                    if (pawn.health.hediffSet.HasHediff(recipe.addsHediff))
+                    {
+                        return false; // Already has this hediff
+                    }
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Error validating surgery '{recipe.defName}' for pawn '{pawn.LabelShort}': {ex.Message}");
+                return false; // If there's an error, don't apply the surgery
+            }
+        }
+
+        private string GetPresetKey(string name, string saveId)
+        {
+            return $"{saveId}:{name}";
+        }
+    }
+
+    public class CorvusSurgeryUISettings : ModSettings
+    {
+        public int lastSelectedTabIndex = 0;
+
+        public override void ExposeData()
+        {
+            Scribe_Values.Look(ref lastSelectedTabIndex, "lastSelectedTabIndex", 0);
+            base.ExposeData();
+        }
+    }
+
+    public class CorvusSurgeryUIMod : Mod
+    {
+        public static CorvusSurgeryUISettings settings;
+        private static Harmony harmony;
+
+        public CorvusSurgeryUIMod(ModContentPack content) : base(content)
+        {
+            settings = GetSettings<CorvusSurgeryUISettings>();
+            harmony = new Harmony("corvus.surgery.ui");
             harmony.PatchAll();
             
             Log.Message("Corvus Surgery UI: Initialized");
         }
-        
-        // Method to clear caches - calls the method in Dialog class
-        public static void ClearCaches()
+
+        public override void WriteSettings()
         {
-            Dialog_CorvusSurgeryPlanner.ClearStaticCaches();
+            base.WriteSettings();
+            settings.Write();
+        }
+
+        public override string SettingsCategory()
+        {
+            return "Corvus Surgery UI";
         }
     }
 
@@ -149,6 +744,18 @@ namespace CorvusSurgeryUI
     // Main dialog window for enhanced surgery planning
     public class Dialog_CorvusSurgeryPlanner : Window
     {
+        private const float TAB_HEIGHT = 35f;
+        private const float FILTER_HEIGHT = 70f;
+        private const float DROPDOWN_WIDTH = 150f;
+        private const float BUTTON_SPACING = 10f;
+        private const float CONTENT_SPACING = 5f;
+        private const float LABEL_HEIGHT = 20f;
+        private const float DROPDOWN_HEIGHT = 25f;
+        private const float SECTION_SPACING = 5f;
+
+        private int selectedTabIndex = 0;
+        private List<TabRecord> tabs;
+        
         private Pawn pawn;
         private Vector2 scrollPosition;
         private string searchFilter = "";
@@ -173,8 +780,25 @@ namespace CorvusSurgeryUI
         private Vector2 billScrollPosition = Vector2.zero;
 
         // Surgery presets
-        private static Dictionary<string, List<SurgeryPresetItem>> surgeryPresets = new Dictionary<string, List<SurgeryPresetItem>>();
         private string selectedPreset = "(none)";
+        
+        // Presets tab scroll position
+        private Vector2 presetsScrollPosition = Vector2.zero;
+        
+        // Presets tab filters (reset to defaults each session) - default to colonists only
+        private bool showColonists = true;
+        private bool showPrisoners = false;
+        private bool showSlaves = false;
+        private bool showAnimals = false;
+        private bool showGuests = false;
+        
+        // Presets tab selected pawn
+        private Pawn selectedPresetsPawn = null;
+        
+        // Visual Planner tab
+        private SvgBodyDiagram bodyDiagram = new SvgBodyDiagram();
+        private BodyPartRegion clickedBodyPart = null;
+        private bool showFloatingDropdown = false;
 
         // Performance optimization - static caches
         private static Dictionary<RecipeDef, SurgeryCategory> recipeCategoryCache = new Dictionary<RecipeDef, SurgeryCategory>();
@@ -189,6 +813,17 @@ namespace CorvusSurgeryUI
             this.doCloseX = true;
             this.absorbInputAroundWindow = true;
             
+            // Initialize tabs
+            tabs = new List<TabRecord>
+            {
+                new TabRecord("Overview", () => { selectedTabIndex = 0; }, () => selectedTabIndex == 0),
+                new TabRecord("Visual Planner", () => { selectedTabIndex = 1; }, () => selectedTabIndex == 1),
+                new TabRecord("Presets", () => { selectedTabIndex = 2; }, () => selectedTabIndex == 2)
+            };
+            
+            // Load last selected tab from settings
+            selectedTabIndex = CorvusSurgeryUIMod.settings.lastSelectedTabIndex;
+            
             // Initialize static caches if needed
             InitializeStaticCaches();
             
@@ -201,51 +836,65 @@ namespace CorvusSurgeryUI
             ApplyFilters();
         }
 
-        public override Vector2 InitialSize => new Vector2(1200f, 700f);
+        public override Vector2 InitialSize => new Vector2(1200f, 800f); // Increased from 750f to 800f
 
         protected override void SetInitialSizeAndPosition()
         {
-            windowRect = new Rect((UI.screenWidth - InitialSize.x) / 2f, (UI.screenHeight - InitialSize.y) / 2f, InitialSize.x, InitialSize.y);
+            windowRect = new Rect((UI.screenWidth - InitialSize.x) / 2f, 
+                                (UI.screenHeight - InitialSize.y) / 2f, 
+                                InitialSize.x, InitialSize.y);
+            windowRect.y = Mathf.Max(15f, windowRect.y); // Ensure window doesn't start too high
         }
 
         public override void DoWindowContents(Rect inRect)
         {
-            // Title
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            var surgeryCount = filteredSurgeries?.Count ?? 0;
-            Widgets.Label(titleRect, $"Surgery Planner - {pawn.LabelShort} ({surgeryCount} surgeries found)");
-            Text.Font = GameFont.Small;
+            // Follow WeaponStats pattern exactly - adjust rect once for tabs
+            inRect.yMin += 35;
 
-            // Filters section
-            Rect filtersRect = new Rect(0f, 35f, inRect.width, 130f); // Moved up from 55f since subtitle was removed
-            DrawFilters(filtersRect);
+            // Draw tabs
+            TabDrawer.DrawTabs(inRect, tabs);
 
-            // Split the remaining area: left for available surgeries, right for queue
-            var remainingHeight = inRect.height - 170f; // Reduced from 190f since we moved filters up
-            var queueWidth = 500f; // Increased from 400f for less clutter
-            var surgeryListWidth = inRect.width - queueWidth - 10f; // Rest for surgeries
-
-            // Available Surgeries (left side)
-            Rect surgeryListRect = new Rect(0f, 170f, surgeryListWidth, remainingHeight); // Reduced Y from 190f
-            DrawSurgeryList(surgeryListRect);
-
-            // Surgery Queue (right side)
-            Rect queuedBillsRect = new Rect(surgeryListWidth + 10f, 170f, queueWidth, remainingHeight); // Reduced Y from 190f
-            DrawQueuedBills(queuedBillsRect);
+            if (selectedTabIndex == 0)
+            {
+                DrawOverviewTab(inRect);
+            }
+            else if (selectedTabIndex == 1)
+            {
+                DrawVisualPlannerTab(inRect);
+            }
+            else if (selectedTabIndex == 2)
+            {
+                DrawPresetsTab(inRect);
+            }
+            
+            // Save selected tab
+            if (CorvusSurgeryUIMod.settings.lastSelectedTabIndex != selectedTabIndex)
+            {
+                CorvusSurgeryUIMod.settings.lastSelectedTabIndex = selectedTabIndex;
+                CorvusSurgeryUIMod.settings.Write();
+            }
         }
 
-        private void DrawFilters(Rect rect)
+        private void DrawOverviewTab(Rect rect)
         {
-            Widgets.DrawBoxSolid(rect, Color.grey * 0.2f);
+            float currentY = rect.y + 5f; // Start with a small padding
+
+            // Draw filters section
+            var filtersRect = new Rect(rect.x, currentY, rect.width, FILTER_HEIGHT);
+            DrawFilters(filtersRect); // Overview tab allows all pawns
+            currentY += FILTER_HEIGHT + SECTION_SPACING;
+
+            // Info bar with pawn name and surgery count
+            var surgeryCount = filteredSurgeries?.Count ?? 0;
+            var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
+            Widgets.Label(infoRect, $"{pawn.LabelShort} ({surgeryCount} surgeries found)");
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            // Search and Queue Non Allowed controls
+            var searchLabelRect = new Rect(rect.x, currentY + 2f, 50f, DROPDOWN_HEIGHT);
+            Widgets.Label(searchLabelRect, "Search:");
             
-            var currentY = rect.y + 5f;
-            
-            // Search filter (top row)
-            Rect searchLabelRect = new Rect(rect.x + 5f, currentY, 50f, 20f);
-            Widgets.Label(searchLabelRect, "CorvusSurgeryUI.Search".Translate());
-            
-            Rect searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 180f, 25f);
+            var searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 200f, DROPDOWN_HEIGHT);
             string newFilter = Widgets.TextField(searchRect, searchFilter);
             if (newFilter != searchFilter)
             {
@@ -253,154 +902,1434 @@ namespace CorvusSurgeryUI
                 ApplyFilters();
             }
 
-            // Category filter (top row, continued)
-            Rect categoryLabelRect = new Rect(searchRect.xMax + 15f, currentY, 60f, 20f);
-            Widgets.Label(categoryLabelRect, "CorvusSurgeryUI.Category".Translate());
-            
-            Rect categoryRect = new Rect(categoryLabelRect.xMax + 5f, currentY, 120f, 25f);
-            if (Widgets.ButtonText(categoryRect, ("CorvusSurgeryUI.Category." + selectedCategory.ToString()).Translate()))
+            var queueToggleRect = new Rect(searchRect.xMax + 20f, currentY, 200f, DROPDOWN_HEIGHT);
+            bool newAllowQueueingDisabled = allowQueueingDisabled;
+            Widgets.CheckboxLabeled(queueToggleRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
+            if (newAllowQueueingDisabled != allowQueueingDisabled)
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                foreach (SurgeryCategory category in Enum.GetValues(typeof(SurgeryCategory)))
-                {
-                    var count = allPawnSurgeries?.Count(s => category == SurgeryCategory.All || s.Category == category) ?? 0;
-                    string categoryKey = category == SurgeryCategory.All ? "CorvusSurgeryUI.All" : "CorvusSurgeryUI.Category." + category.ToString();
-                    options.Add(new FloatMenuOption($"{categoryKey.Translate()} ({count})", () => {
-                        selectedCategory = category;
-                        ApplyFilters();
-                    }));
-                }
-                Find.WindowStack.Add(new FloatMenu(options));
+                allowQueueingDisabled = newAllowQueueingDisabled;
+            }
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            // Split the remaining area for surgeries and queue
+            var remainingRect = new Rect(rect.x, currentY, rect.width, 
+                rect.height - (currentY - rect.y));
+            
+            var queueWidth = 500f;
+            var surgeryListWidth = remainingRect.width - queueWidth - 10f;
+
+            // Available Surgeries (left side)
+            var surgeryListRect = new Rect(remainingRect.x, remainingRect.y, surgeryListWidth, remainingRect.height);
+            DrawSurgeryList(surgeryListRect);
+
+            // Surgery Queue (right side)
+            var queuedBillsRect = new Rect(surgeryListRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
+            DrawQueuedBills(queuedBillsRect);
+        }
+
+        private void DrawPresetsTab(Rect rect)
+        {
+            float currentY = rect.y + 5f;
+            
+            // Header with controls on the right
+            var eligiblePawns = GetAllEligiblePawns();
+            var headerRect = new Rect(rect.x, currentY, rect.width, 30f);
+            
+            // Left side - title
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(headerRect.x, headerRect.y, headerRect.width * 0.6f, headerRect.height);
+            Widgets.Label(titleRect, "CorvusSurgeryUI.SurgeryPresets".Translate(eligiblePawns.Count));
+            Text.Font = GameFont.Small;
+            
+            // Right side - preset controls
+            DrawPresetsTabControls(new Rect(titleRect.xMax, headerRect.y, headerRect.width - titleRect.width, headerRect.height), eligiblePawns);
+            
+            currentY = headerRect.yMax + 5f;
+
+            // Filter checkboxes
+            var filterRect = new Rect(rect.x, currentY, rect.width, 30f);
+            bool filtersChanged = DrawPresetFilters(filterRect);
+            currentY = filterRect.yMax + 10f;
+            
+            // If filters changed, get updated pawn list
+            if (filtersChanged)
+            {
+                eligiblePawns = GetAllEligiblePawns();
+                
+                // Update header count and controls
+                Text.Font = GameFont.Medium;
+                Widgets.Label(titleRect, "CorvusSurgeryUI.SurgeryPresets".Translate(eligiblePawns.Count));
+                Text.Font = GameFont.Small;
+                DrawPresetsTabControls(new Rect(titleRect.xMax, headerRect.y, headerRect.width - titleRect.width, headerRect.height), eligiblePawns);
             }
 
-            // Mod source filter
-            Rect modLabelRect = new Rect(categoryRect.xMax + 15f, currentY, 40f, 20f);
-            Widgets.Label(modLabelRect, "CorvusSurgeryUI.Mod".Translate());
-            
-            Rect modButtonRect = new Rect(modLabelRect.xMax + 5f, currentY, 150f, 25f);
-            string modButtonText = selectedModFilter == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : selectedModFilter;
-            if (Widgets.ButtonText(modButtonRect, modButtonText))
+            // Ensure we have a selected pawn (default to first)
+            if (selectedPresetsPawn == null || !eligiblePawns.Contains(selectedPresetsPawn))
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                foreach (string modName in availableMods)
+                selectedPresetsPawn = eligiblePawns.FirstOrDefault();
+            }
+
+            // Split the remaining area for pawn grid and queued bills
+            var remainingRect = new Rect(rect.x, currentY, rect.width, rect.height - (currentY - rect.y));
+            
+            var queueWidth = 500f;
+            var pawnGridWidth = remainingRect.width - queueWidth - 10f;
+
+            // Pawn Grid (left side)
+            var pawnGridRect = new Rect(remainingRect.x, remainingRect.y, pawnGridWidth, remainingRect.height);
+            DrawPawnGrid(pawnGridRect, eligiblePawns);
+
+            // Surgery Queue (right side) - only if we have a selected pawn
+            if (selectedPresetsPawn != null)
+            {
+                var queuedBillsRect = new Rect(pawnGridRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
+                DrawPresetsQueuedBills(queuedBillsRect, selectedPresetsPawn);
+            }
+        }
+
+        private List<Pawn> GetAllEligiblePawns()
+        {
+            var allPawns = new List<Pawn>();
+            
+            // Get all maps
+            var maps = Current.Game?.Maps;
+            if (maps == null) return allPawns;
+            
+            foreach (var map in maps)
+            {
+                if (map?.mapPawns == null) continue;
+                
+                // Get all pawns that can have surgery
+                var mapPawns = map.mapPawns.AllPawnsSpawned.Where(p => CanHaveSurgery(p));
+                allPawns.AddRange(mapPawns);
+            }
+            
+            // Apply filters and return sorted list
+            return FilterAndSortPawns(allPawns);
+        }
+        
+        private List<Pawn> FilterAndSortPawns(List<Pawn> pawns)
+        {
+            var filteredPawns = new List<Pawn>();
+            
+            foreach (var pawn in pawns)
+            {
+                var category = GetPawnCategory(pawn);
+                
+                // Apply filters
+                bool shouldInclude = false;
+                switch (category)
                 {
-                    int count;
-                    if (modName == "All")
+                    case PawnCategory.Colonist:
+                        shouldInclude = showColonists;
+                        break;
+                    case PawnCategory.Prisoner:
+                        shouldInclude = showPrisoners;
+                        break;
+                    case PawnCategory.Slave:
+                        shouldInclude = showSlaves;
+                        break;
+                    case PawnCategory.Animal:
+                        shouldInclude = showAnimals;
+                        break;
+                    case PawnCategory.Guest:
+                        shouldInclude = showGuests;
+                        break;
+                }
+                
+                if (shouldInclude)
+                {
+                    filteredPawns.Add(pawn);
+                }
+            }
+            
+            // Sort by category, then alphabetically within category
+            return filteredPawns
+                .OrderBy(p => (int)GetPawnCategory(p))
+                .ThenBy(p => p.LabelShort)
+                .ToList();
+        }
+        
+        private PawnCategory GetPawnCategory(Pawn pawn)
+        {
+            // Colony-owned animals only (not wild animals or animals from other factions)
+            if (pawn.RaceProps.Animal && pawn.Faction == Faction.OfPlayer)
+            {
+                return PawnCategory.Animal;
+            }
+            
+            if (pawn.IsSlave)
+            {
+                return PawnCategory.Slave;
+            }
+            
+            if (pawn.IsPrisoner)
+            {
+                return PawnCategory.Prisoner;
+            }
+            
+            if (pawn.IsColonist)
+            {
+                return PawnCategory.Colonist;
+            }
+            
+            // Check if it's a guest (quest pawn, trader, hospitality guest, etc.)
+            if (IsGuest(pawn))
+            {
+                return PawnCategory.Guest;
+            }
+            
+            // Default to guest for any other non-faction pawns (including wild animals)
+            return PawnCategory.Guest;
+        }
+        
+        private bool IsGuest(Pawn pawn)
+        {
+            // Quest pawns
+            if (pawn.questTags?.Any() == true)
+            {
+                return true;
+            }
+            
+            // Trade caravan members
+            if (pawn.TraderKind != null || pawn.Faction?.def?.categoryTag == "TradingCompany")
+            {
+                return true;
+            }
+            
+            // Hospitality mod guests (check for guest beds or hospitality status)
+            if (pawn.guest != null && pawn.guest.GuestStatus == GuestStatus.Guest)
+            {
+                return true;
+            }
+            
+            // Non-player faction pawns that aren't prisoners/slaves
+            if (pawn.Faction != null && pawn.Faction != Faction.OfPlayer && !pawn.IsPrisoner && !pawn.IsSlave)
+            {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        private bool DrawPresetFilters(Rect rect)
+        {
+            bool changed = false;
+            float currentX = rect.x;
+            const float checkboxWidth = 100f;
+            const float spacing = 10f;
+            
+            // Store original values to detect changes
+            bool origColonists = showColonists;
+            bool origPrisoners = showPrisoners;
+            bool origSlaves = showSlaves;
+            bool origAnimals = showAnimals;
+            bool origGuests = showGuests;
+            
+            // Draw checkboxes horizontally
+            var colonistRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(colonistRect, "CorvusSurgeryUI.Colonists".Translate(), ref showColonists);
+            currentX += checkboxWidth + spacing;
+            
+            var prisonerRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(prisonerRect, "CorvusSurgeryUI.Prisoners".Translate(), ref showPrisoners);
+            currentX += checkboxWidth + spacing;
+            
+            var slaveRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(slaveRect, "CorvusSurgeryUI.Slaves".Translate(), ref showSlaves);
+            currentX += checkboxWidth + spacing;
+            
+            var animalRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(animalRect, "CorvusSurgeryUI.Animals".Translate(), ref showAnimals);
+            currentX += checkboxWidth + spacing;
+            
+            var guestRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(guestRect, "CorvusSurgeryUI.Guests".Translate(), ref showGuests);
+            
+            // Check if any filters changed
+            changed = origColonists != showColonists || 
+                     origPrisoners != showPrisoners || 
+                     origSlaves != showSlaves || 
+                     origAnimals != showAnimals || 
+                     origGuests != showGuests;
+            
+            return changed;
+        }
+        
+        private void DrawVisualPlannerTab(Rect rect)
+        {
+            float currentY = rect.y + 5f;
+            
+            // Get humanoid pawns only (no animals for Visual Planner)
+            var humanoidPawns = GetHumanoidPawns();
+            
+            // Ensure we have a selected pawn (default to first)
+            if (pawn == null || !humanoidPawns.Contains(pawn) || pawn.RaceProps.Animal)
+            {
+                pawn = humanoidPawns.FirstOrDefault();
+                if (pawn != null)
+                {
+                    BuildFullSurgeryList();
+                    ApplyFilters();
+                    LoadQueuedBills();
+                }
+            }
+            
+            // Filters section (same as Overview tab but with humanoid pawns only)
+            var filtersRect = new Rect(rect.x, currentY, rect.width, FILTER_HEIGHT);
+            DrawFilters(filtersRect, true); // true = humanoids only
+            currentY += FILTER_HEIGHT + SECTION_SPACING;
+
+            // Info bar with pawn name and surgery count
+            var surgeryCount = filteredSurgeries?.Count ?? 0;
+            var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
+            if (pawn != null)
+            {
+                Widgets.Label(infoRect, $"{pawn.LabelShort} ({surgeryCount} surgeries found)");
+            }
+            else
+            {
+                Widgets.Label(infoRect, "No humanoid pawns available");
+            }
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            // Queue Non Allowed control
+            var queueToggleRect = new Rect(rect.x, currentY, 200f, DROPDOWN_HEIGHT);
+            bool newAllowQueueingDisabled = allowQueueingDisabled;
+            Widgets.CheckboxLabeled(queueToggleRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
+            if (newAllowQueueingDisabled != allowQueueingDisabled)
+            {
+                allowQueueingDisabled = newAllowQueueingDisabled;
+                ApplyFilters();
+            }
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            if (pawn == null) return;
+
+            // Split the remaining area for body diagram and queued bills
+            var remainingRect = new Rect(rect.x, currentY, rect.width, rect.height - (currentY - rect.y));
+            
+            var queueWidth = 500f;
+            var diagramWidth = remainingRect.width - queueWidth - 10f;
+
+            // Body Diagram (left side)
+            var diagramRect = new Rect(remainingRect.x, remainingRect.y, diagramWidth, remainingRect.height);
+            DrawBodyDiagram(diagramRect);
+
+            // Surgery Queue (right side)
+            var queuedBillsRect = new Rect(diagramRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
+            DrawQueuedBills(queuedBillsRect);
+            
+            // Handle floating dropdown
+            if (showFloatingDropdown && clickedBodyPart != null)
+            {
+                DrawFloatingBodyPartDropdown();
+            }
+        }
+        
+        private List<Pawn> GetHumanoidPawns()
+        {
+            var humanoidPawns = new List<Pawn>();
+            
+            // Get all maps
+            var maps = Current.Game?.Maps;
+            if (maps == null) return humanoidPawns;
+            
+            foreach (var map in maps)
+            {
+                if (map?.mapPawns == null) continue;
+                
+                // Get all humanoid pawns (exclude animals)
+                var mapPawns = map.mapPawns.AllPawnsSpawned
+                    .Where(p => CanHaveSurgery(p) && !p.RaceProps.Animal);
+                humanoidPawns.AddRange(mapPawns);
+            }
+            
+            return humanoidPawns.OrderBy(p => p.LabelShort).ToList();
+        }
+        
+        private void DrawBodyDiagram(Rect rect)
+        {
+            // Draw header
+            Text.Font = GameFont.Medium;
+            var headerRect = new Rect(rect.x, rect.y, rect.width, 25f);
+            Widgets.Label(headerRect, "Body Diagram");
+            Text.Font = GameFont.Small;
+            
+            // Adjust diagram area
+            var diagramArea = new Rect(rect.x, rect.y + 30f, rect.width, rect.height - 30f);
+            
+            // Draw the body diagram
+            bodyDiagram.DrawBodyDiagram(diagramArea, pawn);
+            
+            // Handle clicks on the body diagram
+            if (Event.current.type == EventType.MouseDown && Event.current.button == 0 && diagramArea.Contains(Event.current.mousePosition))
+            {
+                var relativeClickPos = Event.current.mousePosition - new Vector2(diagramArea.x, diagramArea.y);
+                var clickedPart = bodyDiagram.GetClickedBodyPart(relativeClickPos, diagramArea);
+                
+                if (clickedPart != null)
+                {
+                    clickedBodyPart = clickedPart;
+                    showFloatingDropdown = true;
+                    Event.current.Use();
+                }
+            }
+        }
+        
+        private void DrawFloatingBodyPartDropdown()
+        {
+            if (clickedBodyPart == null || pawn == null) return;
+            
+            // Get surgeries and current parts for this body part
+            var bodyPartSurgeries = GetSurgeriesForBodyPart(clickedBodyPart);
+            var currentParts = GetCurrentPartsForBodyPart(clickedBodyPart);
+            
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            
+            // === SECTION 1: HEADER ===
+            var headerText = !string.IsNullOrEmpty(clickedBodyPart.SvgId) ? 
+                clickedBodyPart.SvgId.CapitalizeFirst() : "Body Part";
+            options.Add(new FloatMenuOption($"─── {headerText} ───", null) { Disabled = true });
+            
+            // === SECTION 2: CURRENT PARTS ===
+            if (currentParts.Any())
+            {
+                options.Add(new FloatMenuOption("Current parts:", null) { Disabled = true });
+                
+                foreach (var part in currentParts)
+                {
+                    if (!part.Contains("(Missing)"))
                     {
-                        count = allPawnSurgeries.Count;
+                        if (part.Contains("(Natural)"))
+                        {
+                            // For natural parts, look for amputation surgeries
+                            var amputationSurgeries = bodyPartSurgeries
+                                .Where(s => s.Label.ToLower().Contains("amputat") ||
+                                           s.Recipe.defName.ToLower().Contains("amputat"))
+                                .ToList();
+                            
+                            if (amputationSurgeries.Any())
+                            {
+                                var ampSurgery = amputationSurgeries.First();
+                                options.Add(new FloatMenuOption($"  Amputate {part.Replace(" (Natural)", "")}", () => {
+                                    QueueSurgeryFromBodyPart(ampSurgery, clickedBodyPart);
+                                    showFloatingDropdown = false;
+                                }));
+                            }
+                            else
+                            {
+                                // Show as info if no amputation available
+                                options.Add(new FloatMenuOption($"  {part}", null) { Disabled = true });
+                            }
+                        }
+                        else
+                        {
+                            // For installed prosthetics/bionics, allow removal
+                            var removalSurgeries = bodyPartSurgeries
+                                .Where(s => s.Label.ToLower().Contains("remove") && 
+                                           !s.Label.ToLower().Contains("install") &&
+                                           !s.Label.ToLower().Contains("amputat"))
+                                .ToList();
+                            
+                            if (removalSurgeries.Any())
+                            {
+                                var removalSurgery = removalSurgeries.First();
+                                options.Add(new FloatMenuOption($"  Remove {part}", () => {
+                                    QueueSurgeryFromBodyPart(removalSurgery, clickedBodyPart);
+                                    showFloatingDropdown = false;
+                                }));
+                            }
+                            else
+                            {
+                                options.Add(new FloatMenuOption($"  {part} (no removal available)", null) { Disabled = true });
+                            }
+                        }
                     }
                     else
                     {
-                        count = allPawnSurgeries.Count(s => (s.Recipe?.modContentPack?.Name ?? "Core") == modName);
+                        // For missing parts, show as info
+                        options.Add(new FloatMenuOption($"  {part}", null) { Disabled = true });
+                    }
+                }
+            }
+            
+            // === SECTION 3: AVAILABLE SURGERIES ===
+            // Only show install/replacement surgeries here
+            var installSurgeries = bodyPartSurgeries
+                .Where(s => s.Label.ToLower().Contains("install") || 
+                           s.Label.ToLower().Contains("replace") ||
+                           (!s.Label.ToLower().Contains("amputat") && 
+                            !s.Label.ToLower().Contains("remove")))
+                .ToList();
+                
+            if (installSurgeries.Any())
+            {
+                foreach (var surgery in installSurgeries)
+                {
+                    // Fix missing label issue
+                    var surgeryLabel = !string.IsNullOrEmpty(surgery.Label) ? surgery.Label : "Unknown Surgery";
+                    
+                    // Determine action based on availability and allowQueueingDisabled setting
+                    System.Action surgeryAction;
+                    if (!surgery.IsAvailable && allowQueueingDisabled)
+                    {
+                        // Use force queue action for disabled surgeries when Queue Non Allowed is checked
+                        surgeryAction = () => {
+                            surgery.ForceQueueAction?.Invoke();
+                            showFloatingDropdown = false;
+                        };
+                    }
+                    else
+                    {
+                        // Use regular queue action
+                        surgeryAction = () => {
+                            QueueSurgeryFromBodyPart(surgery, clickedBodyPart);
+                            showFloatingDropdown = false;
+                        };
                     }
                     
-                    string displayName = modName == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : modName;
-                    options.Add(new FloatMenuOption($"{displayName} ({count})", () => {
-                        selectedModFilter = modName;
-                        ApplyFilters();
-                    }));
+                    var option = new FloatMenuOption($"  {surgeryLabel}", surgeryAction);
+                    
+                    // Add tooltip if surgery has description
+                    if (!surgery.Description.NullOrEmpty())
+                    {
+                        option.tooltip = surgery.Description;
+                    }
+                    
+                    // Only disable if surgery is not available AND allowQueueingDisabled is false
+                    if (!surgery.IsAvailable && !allowQueueingDisabled)
+                    {
+                        option.Disabled = true;
+                        option.tooltip = surgery.Requirements ?? "Surgery not available";
+                    }
+                    else if (!surgery.IsAvailable && allowQueueingDisabled)
+                    {
+                        // Add indication that this will be force-queued
+                        option.tooltip = (surgery.Requirements ?? "Surgery not available") + "\n\n(Will be force-queued and suspended)";
+                    }
+                    
+                    options.Add(option);
                 }
-                Find.WindowStack.Add(new FloatMenu(options));
             }
-
-            // Target Body Part filter
-            Rect targetLabelRect = new Rect(modButtonRect.xMax + 15f, currentY, 50f, 20f);
-            Widgets.Label(targetLabelRect, "CorvusSurgeryUI.Target".Translate());
-            
-            Rect targetButtonRect = new Rect(targetLabelRect.xMax + 5f, currentY, 150f, 25f);
-            string targetButtonLabel = selectedTargetPart?.LabelCap ?? "All";
-            if (Widgets.ButtonText(targetButtonRect, targetButtonLabel))
+            else if (!currentParts.Any())
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                options.Add(new FloatMenuOption("All", () => {
-                    selectedTargetPart = null;
-                    ApplyFilters();
-                }));
-                
-                foreach (var target in availableTargets)
-                {
-                    options.Add(new FloatMenuOption(target.LabelCap, () => {
-                        selectedTargetPart = target;
-                        ApplyFilters();
-                    }));
-                }
-                Find.WindowStack.Add(new FloatMenu(options));
+                // Only show "No surgeries available" if there are no current parts either
+                options.Add(new FloatMenuOption("No surgeries available", null) { Disabled = true });
             }
+            
+            // Create and show the float menu
+            var floatMenu = new FloatMenu(options);
+            Find.WindowStack.Add(floatMenu);
+            
+            // Reset the dropdown state
+            showFloatingDropdown = false;
+        }
+        
+        private List<SurgeryOptionCached> GetSurgeriesForBodyPart(BodyPartRegion bodyPartRegion)
+        {
+            if (filteredSurgeries == null) return new List<SurgeryOptionCached>();
+            
+            var relevantSurgeries = new List<SurgeryOptionCached>();
+            
+            // Get the actual RimWorld body part that corresponds to the clicked region
+            var clickedActualBodyPart = FindBodyPartRecord(bodyPartRegion, pawn);
+            
+            foreach (var surgery in filteredSurgeries)
+            {
+                // Check if surgery targets this specific body part or its children
+                if (surgery.BodyPart != null && clickedActualBodyPart != null)
+                {
+                    // Direct match: surgery targets the exact body part that was clicked
+                    if (surgery.BodyPart == clickedActualBodyPart)
+                    {
+                        relevantSurgeries.Add(surgery);
+                    }
+                    // Hierarchical match: surgery targets a child/descendant of the clicked body part
+                    else if (IsChildOf(surgery.BodyPart, clickedActualBodyPart))
+                    {
+                        // For torso clicks, exclude limbs and extremities
+                        if (bodyPartRegion.SvgId.ToLower() == "torso")
+                        {
+                            var bodyPartDefName = surgery.BodyPart.def.defName.ToLower();
+                            
+                            // Skip limbs and extremities when clicking torso
+                            if (bodyPartDefName.Contains("arm") || bodyPartDefName.Contains("leg") || 
+                                bodyPartDefName.Contains("hand") || bodyPartDefName.Contains("foot") ||
+                                bodyPartDefName.Contains("finger") || bodyPartDefName.Contains("toe") ||
+                                bodyPartDefName.Contains("shoulder") || bodyPartDefName.Contains("jaw"))
+                            {
+                                continue; // Skip this surgery
+                            }
+                        }
+                        
+                        relevantSurgeries.Add(surgery);
+                    }
+                }
+                // Additional fallback: For complex body regions (ribcage/torso), also check by name matching
+                // This helps catch surgeries that might not follow the exact hierarchy
+                else if (bodyPartRegion.IsSubPart && bodyPartRegion.SubParts != null)
+                {
+                    // For sub-parts like ribcage/torso, check if surgery affects internal organs
+                    foreach (var subPart in bodyPartRegion.SubParts)
+                    {
+                        if (surgery.BodyPart != null)
+                        {
+                            var partDefName = surgery.BodyPart.def.defName.ToLower();
+                            var partLabel = surgery.BodyPart.def.label?.ToLower() ?? "";
+                            
+                            // Check if the surgery's body part name matches expected sub-part names
+                            var organVariations = GetOrganNameVariations(subPart.ToLower());
+                            bool matchFound = false;
+                            
+                            foreach (var variation in organVariations)
+                            {
+                                if (partDefName.Contains(variation) || partLabel.Contains(variation))
+                                {
+                                    // For torso clicks, still exclude limbs even in name-based matching
+                                    if (bodyPartRegion.SvgId.ToLower() == "torso")
+                                    {
+                                        if (partDefName.Contains("arm") || partDefName.Contains("leg") || 
+                                            partDefName.Contains("hand") || partDefName.Contains("foot") ||
+                                            partDefName.Contains("finger") || partDefName.Contains("toe") ||
+                                            partDefName.Contains("shoulder") || partDefName.Contains("jaw"))
+                                        {
+                                            break; // Skip this surgery
+                                        }
+                                    }
+                                    
+                                    relevantSurgeries.Add(surgery);
+                                    matchFound = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (matchFound) break; // Don't add the same surgery multiple times
+                        }
+                    }
+                }
+                
+                // Also check for general surgeries that might apply to this region
+                else if (surgery.Recipe != null)
+                {
+                    var recipeName = surgery.Recipe.defName.ToLower();
+                    var recipeLabel = surgery.Recipe.label.ToLower();
+                    var regionName = bodyPartRegion.SvgId.ToLower();
+                    
+                    // Check for general body region matches
+                    if (recipeName.Contains(regionName) || recipeLabel.Contains(regionName))
+                    {
+                        // For torso clicks, exclude limbs even from general recipe matching
+                        if (regionName == "torso" && surgery.BodyPart != null)
+                        {
+                            var bodyPartDefName = surgery.BodyPart.def.defName.ToLower();
+                            
+                            if (bodyPartDefName.Contains("arm") || bodyPartDefName.Contains("leg") || 
+                                bodyPartDefName.Contains("hand") || bodyPartDefName.Contains("foot") ||
+                                bodyPartDefName.Contains("finger") || bodyPartDefName.Contains("toe") ||
+                                bodyPartDefName.Contains("shoulder") || bodyPartDefName.Contains("jaw"))
+                            {
+                                continue; // Skip this surgery
+                            }
+                        }
+                        
+                        relevantSurgeries.Add(surgery);
+                    }
+                }
+            }
+            
+            return relevantSurgeries;
+        }
+        
+        private bool IsChildOf(BodyPartRecord childPart, BodyPartRecord potentialParent)
+        {
+            if (childPart == null || potentialParent == null) return false;
+            
+            // Only check direct children, not all descendants
+            // This prevents arms/legs from showing up when clicking torso
+            return childPart.parent == potentialParent;
+        }
+        
+        private List<string> GetOrganNameVariations(string organName)
+        {
+            var variations = new List<string> { organName };
+            
+            // Add common variations for organ names that might appear in surgery recipes
+            switch (organName)
+            {
+                case "lung":
+                    variations.AddRange(new[] { "lungs", "pulmonary", "respiratory" });
+                    break;
+                case "heart":
+                    variations.AddRange(new[] { "cardiac", "cardio" });
+                    break;
+                case "liver":
+                    variations.AddRange(new[] { "hepatic" });
+                    break;
+                case "kidney":
+                    variations.AddRange(new[] { "kidneys", "renal" });
+                    break;
+                case "stomach":
+                    variations.AddRange(new[] { "gastric" });
+                    break;
+                case "rib":
+                    variations.AddRange(new[] { "ribs", "ribcage" });
+                    break;
+            }
+            
+            return variations;
+        }
+        
+        private List<string> GetCurrentPartsForBodyPart(BodyPartRegion bodyPartRegion)
+        {
+            if (pawn?.health?.hediffSet == null) return new List<string>();
+            
+            var currentParts = new List<string>();
+            var actualBodyPart = FindBodyPartRecord(bodyPartRegion, pawn);
+            
+            if (actualBodyPart == null) return currentParts;
+            
+            // Check if the part is missing
+            if (pawn.health.hediffSet.PartIsMissing(actualBodyPart))
+            {
+                currentParts.Add("(Missing)");
+                return currentParts;
+            }
+            
+            // Check for installed prosthetics/bionics
+            var installedParts = pawn.health.hediffSet.hediffs
+                .Where(h => h.Part == actualBodyPart && h.def.spawnThingOnRemoved != null)
+                .ToList();
+            
+            foreach (var part in installedParts)
+            {
+                currentParts.Add(part.def.LabelCap.ToString());
+            }
+            
+            // If no artificial parts, show natural part
+            if (!installedParts.Any())
+            {
+                currentParts.Add(actualBodyPart.LabelCap.ToString() + " (Natural)");
+            }
+            
+            return currentParts;
+        }
+        
+        private void QueueSurgeryFromBodyPart(SurgeryOptionCached surgery, BodyPartRegion bodyPart)
+        {
+            try
+            {
+                if (pawn is IBillGiver billGiver && billGiver.BillStack != null)
+                {
+                    var bill = new Bill_Medical(surgery.Recipe, null);
+                    bill.Part = surgery.BodyPart;
+                    billGiver.BillStack.AddBill(bill);
+                    LoadQueuedBills(); // Refresh the queue
+                    
+                    Messages.Message($"Queued {surgery.Recipe.LabelCap} for {pawn.LabelShort}", 
+                        MessageTypeDefOf.PositiveEvent);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error queuing surgery from body part: {ex}");
+            }
+        }
+        
+        private BodyPartRecord FindBodyPartRecord(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.RaceProps?.body?.AllParts == null) return null;
+            
+            // Handle special cases for body part matching
+            if (bodyPart.Index >= 0)
+            {
+                // For paired parts, get all matching parts
+                var parts = pawn.RaceProps.body.AllParts
+                    .Where(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
 
-            // Pawn selector
-            Rect pawnLabelRect = new Rect(targetButtonRect.xMax + 15f, currentY, 45f, 20f);
+                if (bodyPart.SvgId.Contains("left"))
+                {
+                    // Try multiple ways to find the left part
+                    var leftPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("left") == true) ??
+                                  parts.FirstOrDefault(p => p.Label.ToLower().Contains("left")) ??
+                                  parts.FirstOrDefault(p => p.def.label.ToLower().Contains("left"));
+                    
+                    if (leftPart != null) return leftPart;
+                    
+                    // If no explicit left found, try first part (index 0)
+                    return parts.OrderBy(p => p.def.index).FirstOrDefault();
+                }
+                else if (bodyPart.SvgId.Contains("right"))
+                {
+                    // Try multiple ways to find the right part
+                    var rightPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("right") == true) ??
+                                   parts.FirstOrDefault(p => p.Label.ToLower().Contains("right")) ??
+                                   parts.FirstOrDefault(p => p.def.label.ToLower().Contains("right"));
+                    
+                    if (rightPart != null) return rightPart;
+                    
+                    // If no explicit right found, try second part (index 1)
+                    var orderedParts = parts.OrderBy(p => p.def.index).ToList();
+                    return orderedParts.Count > 1 ? orderedParts[1] : orderedParts.LastOrDefault();
+                }
+                
+                // Fallback to index-based matching for non-left/right parts
+                var sortedParts = parts.OrderBy(p => p.def.index).ToList();
+                if (bodyPart.Index < sortedParts.Count)
+                {
+                    return sortedParts[bodyPart.Index];
+                }
+            }
+            else
+            {
+                // For single parts, find by name
+                return pawn.RaceProps.body.AllParts
+                    .FirstOrDefault(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase));
+            }
+            
+            return null;
+        }
+        
+        private void DrawPresetsTabControls(Rect rect, List<Pawn> eligiblePawns)
+        {
+            float rightX = rect.xMax;
+            
+            // Export button (only if a preset is selected)
+            if (selectedPreset != "(none)")
+            {
+                var exportButtonRect = new Rect(rightX - 60f, rect.y, 60f, rect.height);
+                if (Widgets.ButtonText(exportButtonRect, "CorvusSurgeryUI.Export".Translate()))
+                {
+                    ShowExportDialog();
+                }
+                rightX = exportButtonRect.x - 10f;
+            }
+            
+            // Import button
+            var importButtonRect = new Rect(rightX - 80f, rect.y, 80f, rect.height);
+            if (Widgets.ButtonText(importButtonRect, "CorvusSurgeryUI.Import".Translate()))
+            {
+                ShowConsolidatedImportDialog();
+            }
+            rightX = importButtonRect.x - 10f;
+            
+            // Apply button (only if a preset is selected)
+            if (selectedPreset != "(none)")
+            {
+                var loadButtonRect = new Rect(rightX - 80f, rect.y, 80f, rect.height);
+                if (Widgets.ButtonText(loadButtonRect, "CorvusSurgeryUI.Apply".Translate()))
+                {
+                    LoadPresetForAllPawns(selectedPreset, eligiblePawns);
+                }
+                rightX = loadButtonRect.x - 10f;
+            }
+            
+            // Preset dropdown (with validation indicator)
+            var dropdownRect = new Rect(rightX - 150f, rect.y, 150f, rect.height);
+            string dropdownText = selectedPreset;
+            
+            // Add red X for invalid presets
+            if (selectedPreset != "(none)")
+            {
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (presets.ContainsKey(selectedPreset) && !presets[selectedPreset].IsValid)
+                {
+                    dropdownText = "❌ " + selectedPreset;
+                }
+            }
+            
+            if (Widgets.ButtonText(dropdownRect, dropdownText))
+            {
+                ShowPresetDropdown();
+            }
+            rightX = dropdownRect.x - 15f;
+            
+            // Apply label
+            var applyLabelRect = new Rect(rightX - 120f, rect.y, 120f, rect.height);
+            Text.Font = GameFont.Small;
+            Text.Anchor = TextAnchor.MiddleRight;
+            GUI.color = Color.gray;
+            Widgets.Label(applyLabelRect, "CorvusSurgeryUI.ApplyToPawns".Translate(eligiblePawns.Count));
+            GUI.color = Color.white;
+            Text.Anchor = TextAnchor.UpperLeft;
+        }
+        
+        private void LoadPresetForAllPawns(string presetName, List<Pawn> pawns)
+        {
+            try
+            {
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (!presets.ContainsKey(presetName))
+                {
+                    Messages.Message("CorvusSurgeryUI.PresetNotFound".Translate(), MessageTypeDefOf.RejectInput);
+                    return;
+                }
+                
+                var preset = presets[presetName];
+                SurgeryPresetManager.Instance.ValidatePreset(preset);
+                
+                int totalLoaded = 0;
+                int totalSkipped = 0;
+                int pawnsAffected = 0;
+                
+                foreach (var pawn in pawns)
+                {
+                    if (pawn is IBillGiver billGiver && billGiver.BillStack != null)
+                    {
+                        int pawnLoaded = 0;
+                        int pawnSkipped = 0;
+                        
+                        foreach (var item in preset.Items)
+                        {
+                            var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                            if (recipe == null)
+                            {
+                                pawnSkipped++;
+                                continue;
+                            }
+                            
+                            // Validate if this surgery is applicable to this specific pawn
+                            if (!IsSurgeryValidForPawn(recipe, pawn, item))
+                            {
+                                pawnSkipped++;
+                                continue;
+                            }
+                            
+                            BodyPartRecord bodyPart = null;
+                            if (!item.BodyPartLabel.NullOrEmpty())
+                            {
+                                bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                            }
+                            
+                            // Create and add bill (append to existing bills)
+                            var bill = new Bill_Medical(recipe, null);
+                            bill.Part = bodyPart;
+                            bill.suspended = item.IsSuspended;
+                            billGiver.BillStack.AddBill(bill);
+                            pawnLoaded++;
+                        }
+                        
+                        if (pawnLoaded > 0)
+                        {
+                            pawnsAffected++;
+                        }
+                        
+                        totalLoaded += pawnLoaded;
+                        totalSkipped += pawnSkipped;
+                    }
+                }
+                
+                string message = totalSkipped == 0 
+                    ? "CorvusSurgeryUI.PresetAppliedToAllPawns".Translate(presetName, pawnsAffected, totalLoaded)
+                    : "CorvusSurgeryUI.PresetAppliedToAllPawnsWithSkipped".Translate(presetName, pawnsAffected, totalLoaded, totalSkipped);
+                
+                var messageType = totalSkipped == 0 ? MessageTypeDefOf.PositiveEvent : MessageTypeDefOf.CautionInput;
+                Messages.Message(message, messageType);
+                
+                // Refresh the bills display if the selected pawn was affected
+                if (selectedPresetsPawn != null && pawns.Contains(selectedPresetsPawn))
+                {
+                    UpdateQueuedBills(selectedPresetsPawn);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error applying preset to all pawns: {ex}");
+                Messages.Message("CorvusSurgeryUI.ErrorApplyingPresetToPawns".Translate(), MessageTypeDefOf.RejectInput);
+            }
+        }
+        
+        private void DrawPawnGrid(Rect rect, List<Pawn> eligiblePawns)
+        {
+            // Calculate grid layout - increased height for preset dropdown
+            const float cardWidth = 120f;
+            const float cardHeight = 180f; // Increased from 140f to 180f
+            const float spacing = 10f;
+            
+            int columns = Mathf.FloorToInt((rect.width + spacing) / (cardWidth + spacing));
+            int rows = Mathf.CeilToInt((float)eligiblePawns.Count / columns);
+            
+            var viewRect = new Rect(0f, 0f, rect.width - 16f, rows * (cardHeight + spacing));
+            
+            Widgets.BeginScrollView(rect, ref presetsScrollPosition, viewRect);
+            
+            // Draw pawn cards
+            for (int i = 0; i < eligiblePawns.Count; i++)
+            {
+                var pawn = eligiblePawns[i];
+                int col = i % columns;
+                int row = i / columns;
+                
+                var cardRect = new Rect(
+                    col * (cardWidth + spacing), 
+                    row * (cardHeight + spacing), 
+                    cardWidth, 
+                    cardHeight
+                );
+                
+                DrawPawnCard(cardRect, pawn, pawn == selectedPresetsPawn);
+            }
+            
+            Widgets.EndScrollView();
+        }
+        
+        private void DrawPresetsQueuedBills(Rect rect, Pawn pawn)
+        {
+            // Update queued bills for the selected pawn
+            UpdateQueuedBills(pawn);
+            
+            // Use DrawQueuedBills method without preset section for Presets tab
+            DrawQueuedBills(rect, false);
+        }
+        
+        private void UpdateQueuedBills(Pawn pawn)
+        {
+                            // Set the thingForMedBills to the selected pawn
+            var previousThing = thingForMedBills;
+            thingForMedBills = pawn;
+            
+            // Load the queued bills for this pawn
+            LoadQueuedBills();
+            
+            // Restore the previous thing (not strictly necessary for presets tab, but good practice)
+            // thingForMedBills = previousThing; // Actually, let's keep it as the selected pawn for consistency
+        }
+        
+        private void DrawPawnPresetDropdown(Rect rect, Pawn pawn)
+        {
+            // Get current save presets
+            var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+            
+            if (presets.Count == 0)
+            {
+                GUI.color = Color.gray;
+                if (Widgets.ButtonText(rect, "CorvusSurgeryUI.NoPresetsAvailable".Translate()))
+                {
+                    // Do nothing - no presets available
+                }
+                GUI.color = Color.white;
+                return;
+            }
+            
+            // Simple dropdown button
+            if (Widgets.ButtonText(rect, "CorvusSurgeryUI.Select".Translate()))
+            {
+                ShowPawnPresetDropdown(rect, pawn);
+            }
+        }
+        
+        private void ShowPawnPresetDropdown(Rect buttonRect, Pawn pawn)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            
+            // Add saved presets
+            var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+            foreach (var kvp in presets)
+            {
+                var name = kvp.Key; // Capture for closure
+                var preset = kvp.Value;
+                string displayName = preset.IsValid 
+                    ? $"{name} ({preset.Items.Count} surgeries)"
+                    : $"❌ {name} ({preset.Items.Count} surgeries - {preset.ValidationErrors.Count} issues)";
+                
+                options.Add(new FloatMenuOption(displayName, () => {
+                    ApplyPresetToPawn(name, pawn);
+                }));
+            }
+            
+            if (presets.Count == 0)
+            {
+                options.Add(new FloatMenuOption("No presets saved", null) { Disabled = true });
+            }
+            
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+        
+        private void ApplyPresetToPawn(string presetName, Pawn pawn)
+        {
+            try
+            {
+                // Use the existing LoadPreset method but modify behavior to append
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (!presets.ContainsKey(presetName))
+                {
+                    Messages.Message("CorvusSurgeryUI.PresetNotFound".Translate(), MessageTypeDefOf.RejectInput);
+                    return;
+                }
+                
+                var preset = presets[presetName];
+                SurgeryPresetManager.Instance.ValidatePreset(preset); // Re-validate before loading
+                
+                // Apply bills to pawn (append, don't clear existing)
+                if (pawn is IBillGiver billGiver && billGiver.BillStack != null)
+                {
+                    int loadedCount = 0;
+                    int skippedCount = 0;
+                    
+                    foreach (var item in preset.Items)
+                    {
+                        var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                        if (recipe == null)
+                        {
+                            skippedCount++;
+                            continue; // Skip missing recipes
+                        }
+                        
+                        // Validate if this surgery is applicable to this specific pawn
+                        if (!IsSurgeryValidForPawn(recipe, pawn, item))
+                        {
+                            skippedCount++;
+                            continue; // Skip invalid surgeries for this pawn
+                        }
+                        
+                        BodyPartRecord bodyPart = null;
+                        if (!item.BodyPartLabel.NullOrEmpty())
+                        {
+                            bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                        }
+                        
+                        // Create and add bill (append to existing bills)
+                        var bill = new Bill_Medical(recipe, null);
+                        bill.Part = bodyPart;
+                        bill.suspended = item.IsSuspended;
+                        billGiver.BillStack.AddBill(bill);
+                        loadedCount++;
+                    }
+                    
+                    string message = skippedCount == 0 
+                        ? "CorvusSurgeryUI.PresetAppliedToPawn".Translate(presetName, pawn.LabelShort, loadedCount)
+                        : "CorvusSurgeryUI.PresetAppliedToPawnWithSkipped".Translate(presetName, pawn.LabelShort, loadedCount, skippedCount);
+                    
+                    var messageType = skippedCount == 0 ? MessageTypeDefOf.PositiveEvent : MessageTypeDefOf.CautionInput;
+                    Messages.Message(message, messageType);
+                    
+                    // Refresh the bills display if this pawn is currently selected
+                    if (selectedPresetsPawn == pawn)
+                    {
+                        UpdateQueuedBills(pawn);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error applying preset to pawn: {ex}");
+                Messages.Message("CorvusSurgeryUI.ErrorApplyingPreset".Translate(), MessageTypeDefOf.RejectInput);
+            }
+        }
+        
+        private bool IsSurgeryValidForPawn(RecipeDef recipe, Pawn pawn, SurgeryPresetItem item)
+        {
+            try
+            {
+                // Check if recipe is a surgery
+                if (!recipe.IsSurgery) return false;
+                
+                // Check research requirements
+                if ((recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished) || 
+                    (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any(r => !r.IsFinished)))
+                {
+                    return false;
+                }
+                
+                // Check recipe availability report - this is the main check for pawn compatibility
+                var report = recipe.Worker.AvailableReport(pawn);
+                if (!report.Accepted && !report.Reason.NullOrEmpty()) 
+                {
+                    return false;
+                }
+                
+                // For targeted surgeries, check if it's available on the specific body part
+                if (recipe.targetsBodyPart)
+                {
+                    BodyPartRecord bodyPart = null;
+                    if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                    }
+                    
+                    if (bodyPart != null)
+                    {
+                        // Check if surgery is available on this specific body part
+                        if (!recipe.AvailableOnNow(pawn, bodyPart))
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        // Body part was specified but not found on this pawn
+                        return false;
+                    }
+                }
+                
+                // For non-targeted surgeries that add hediffs, check if pawn already has the hediff
+                if (!recipe.targetsBodyPart && recipe.addsHediff != null)
+                {
+                    if (pawn.health.hediffSet.HasHediff(recipe.addsHediff))
+                    {
+                        return false; // Already has this hediff
+                    }
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Error validating surgery '{recipe.defName}' for pawn '{pawn.LabelShort}': {ex.Message}");
+                return false; // If there's an error, don't apply the surgery
+            }
+        }
+        
+        private bool CanHaveSurgery(Pawn pawn)
+        {
+            if (pawn?.health?.hediffSet == null) return false;
+            
+            // Same logic as in the original mod
+            return pawn.RaceProps.Humanlike || (pawn.RaceProps.Animal && pawn.health.hediffSet != null);
+        }
+        
+        private void DrawPawnCard(Rect cardRect, Pawn pawn, bool isSelected = false)
+        {
+            // Card background - highlight if selected
+            Color backgroundColor = isSelected ? Color.blue * 0.3f : Color.black * 0.2f;
+            Widgets.DrawBoxSolid(cardRect, backgroundColor);
+            
+            // Border - thicker if selected
+            int borderWidth = isSelected ? 2 : 1;
+            Color borderColor = isSelected ? Color.cyan : Color.white;
+            GUI.color = borderColor;
+            Widgets.DrawBox(cardRect, borderWidth);
+            GUI.color = Color.white;
+            
+            // Portrait area
+            var portraitRect = new Rect(cardRect.x + 5f, cardRect.y + 5f, cardRect.width - 10f, 80f);
+            
+            // Draw actual pawn portrait using RimWorld's portrait system
+            try
+            {
+                // Get or create portrait from RimWorld's cache
+                var portrait = PortraitsCache.Get(pawn, new Vector2(portraitRect.width, portraitRect.height), Rot4.South, default(Vector3), 1f);
+                
+                if (portrait != null)
+                {
+                    GUI.DrawTexture(portraitRect, portrait);
+                }
+                else
+                {
+                    // Fallback to colored rectangle if portrait fails
+                    DrawFallbackPortrait(portraitRect, pawn);
+                }
+            }
+            catch (Exception ex)
+            {
+                // If portrait rendering fails, use fallback
+                Log.Warning($"Corvus Surgery UI: Failed to render portrait for {pawn.LabelShort}: {ex.Message}");
+                DrawFallbackPortrait(portraitRect, pawn);
+            }
+            
+            // Pawn name
+            var nameRect = new Rect(cardRect.x + 2f, portraitRect.yMax + 5f, cardRect.width - 4f, 20f);
+            Text.Font = GameFont.Tiny;
+            Text.Anchor = TextAnchor.MiddleCenter;
+            Widgets.Label(nameRect, pawn.LabelShort.Truncate(nameRect.width));
+            
+            // Pawn status/type
+            var statusRect = new Rect(cardRect.x + 2f, nameRect.yMax, cardRect.width - 4f, 15f);
+            string status = "";
+            switch (GetPawnCategory(pawn))
+            {
+                case PawnCategory.Colonist:
+                    status = "CorvusSurgeryUI.Colonist".Translate();
+                    break;
+                case PawnCategory.Prisoner:
+                    status = "CorvusSurgeryUI.Prisoner".Translate();
+                    break;
+                case PawnCategory.Slave:
+                    status = "CorvusSurgeryUI.Slave".Translate();
+                    break;
+                case PawnCategory.Animal:
+                    status = "CorvusSurgeryUI.Animal".Translate();
+                    break;
+                case PawnCategory.Guest:
+                    status = "CorvusSurgeryUI.Guest".Translate();
+                    break;
+                default:
+                    status = "CorvusSurgeryUI.Unknown".Translate();
+                    break;
+            }
+            
+            GUI.color = Color.gray;
+            Widgets.Label(statusRect, status);
+            GUI.color = Color.white;
+            
+            // Location info
+            var locationRect = new Rect(cardRect.x + 2f, statusRect.yMax, cardRect.width - 4f, 15f);
+            string location = pawn.Map?.Parent?.Label ?? "Unknown";
+            Widgets.Label(locationRect, location.Truncate(locationRect.width));
+            
+            // Preset dropdown
+            var presetLabelRect = new Rect(cardRect.x + 2f, locationRect.yMax + 2f, cardRect.width - 4f, 12f);
+            GUI.color = Color.gray;
+            Text.Font = GameFont.Tiny;
+            Widgets.Label(presetLabelRect, "CorvusSurgeryUI.Preset".Translate());
+            GUI.color = Color.white;
+            
+            var presetDropdownRect = new Rect(cardRect.x + 2f, presetLabelRect.yMax, cardRect.width - 4f, 20f);
+            DrawPawnPresetDropdown(presetDropdownRect, pawn);
+            
+            // Reset text settings to defaults
+            Text.Anchor = TextAnchor.UpperLeft;
+            Text.Font = GameFont.Small;
+            
+            // Click handling - select pawn for presets tab (but not over the dropdown)
+            var clickableRect = new Rect(cardRect.x, cardRect.y, cardRect.width, presetLabelRect.y - cardRect.y);
+            if (Widgets.ButtonInvisible(clickableRect))
+            {
+                selectedPresetsPawn = pawn;
+            }
+            
+            // Hover effect
+            if (Mouse.IsOver(cardRect))
+            {
+                Widgets.DrawHighlight(cardRect);
+                TooltipHandler.TipRegion(cardRect, $"{pawn.LabelShort}\n{status}\nLocation: {location}");
+            }
+        }
+        
+        private void DrawFallbackPortrait(Rect portraitRect, Pawn pawn)
+        {
+            // Fallback portrait with better visuals
+            Color pawnColor = Color.gray;
+            if (pawn.IsColonist) pawnColor = Color.green;
+            else if (pawn.IsPrisoner) pawnColor = Color.red;
+            else if (pawn.RaceProps.Animal) pawnColor = Color.yellow;
+            
+            // Draw gradient background
+            Widgets.DrawBoxSolid(portraitRect, pawnColor * 0.3f);
+            
+            // Add border
+            Widgets.DrawBox(portraitRect, 1);
+            
+            // Add a simple icon/initial in the center
+            var iconRect = new Rect(portraitRect.center.x - 15f, portraitRect.center.y - 15f, 30f, 30f);
+            
+            // Store current text settings
+            var originalFont = Text.Font;
+            var originalAnchor = Text.Anchor;
+            
+            Text.Font = GameFont.Medium;
+            Text.Anchor = TextAnchor.MiddleCenter;
+            
+            string icon;
+            if (pawn.RaceProps.Animal)
+            {
+                icon = "A"; // Simple "A" for Animal
+            }
+            else
+            {
+                icon = !string.IsNullOrEmpty(pawn.LabelShort) ? pawn.LabelShort.Substring(0, 1).ToUpper() : "?";
+            }
+            
+            // Draw with high contrast
+            GUI.color = Color.black;
+            var shadowRect = new Rect(iconRect.x + 1f, iconRect.y + 1f, iconRect.width, iconRect.height);
+            Widgets.Label(shadowRect, icon);
+            
+            GUI.color = Color.white;
+            Widgets.Label(iconRect, icon);
+            
+            // Restore text settings
+            Text.Font = originalFont;
+            Text.Anchor = originalAnchor;
+            GUI.color = Color.white;
+        }
+
+        private void DrawFilters(Rect rect, bool humanoidsOnly = false)
+        {
+            float currentY = rect.y;
+
+            // First row: Labels for dropdowns
+            var labelY = currentY;
+            var categoryLabelRect = new Rect(rect.x, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            Widgets.Label(categoryLabelRect, "Category:");
+
+            var modLabelRect = new Rect(categoryLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            Widgets.Label(modLabelRect, "Mod:");
+
+            var targetLabelRect = new Rect(modLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            Widgets.Label(targetLabelRect, "Target:");
+
+            var pawnLabelRect = new Rect(targetLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
             Widgets.Label(pawnLabelRect, "Pawn:");
 
-            Rect pawnButtonRect = new Rect(pawnLabelRect.xMax + 5f, currentY, 150f, 25f);
-            if (Widgets.ButtonText(pawnButtonRect, pawn.LabelShort))
+            // Second row: Dropdowns (reduced spacing)
+            currentY += LABEL_HEIGHT + 2f; // Minimal spacing between label and dropdown
+            var dropdownY = currentY;
+
+            // Category dropdown
+            var categoryRect = new Rect(rect.x, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            string buttonText = selectedCategory == SurgeryCategory.All ? 
+                "CorvusSurgeryUI.All".Translate() : 
+                ("CorvusSurgeryUI.Category." + selectedCategory.ToString()).Translate();
+            
+            if (Widgets.ButtonText(categoryRect, buttonText))
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                
-                // Get all valid pawns (same logic as the O key shortcut)
-                var allPawns = Find.Maps.SelectMany(m => m.mapPawns.AllPawns)
-                    .Where(p => p.Faction == Faction.OfPlayer && 
-                        (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null)))
-                    .OrderByDescending(p => p.RaceProps.Humanlike) // Humans first, then animals
-                    .ThenBy(p => p.LabelShort);
-
-                foreach (var possiblePawn in allPawns)
-                {
-                    string label = possiblePawn.LabelShort;
-                    if (possiblePawn.RaceProps.Animal)
-                    {
-                        label += $" ({possiblePawn.def.label})";
-                    }
-
-                    options.Add(new FloatMenuOption(label, () => {
-                        if (possiblePawn != pawn)
-                        {
-                            // Switch to the new pawn
-                            pawn = possiblePawn;
-                            thingForMedBills = possiblePawn;  // Update thingForMedBills to the new pawn
-                            // Rebuild surgery list for new pawn
-                            BuildFullSurgeryList();
-                            PopulateAvailableTargets();
-                            // Load any existing bills for the new pawn
-                            LoadQueuedBills();
-                            // Reapply filters to update the view
-                            ApplyFilters();
-                        }
-                    }));
-                }
-
-                if (!options.Any())
-                {
-                    options.Add(new FloatMenuOption("No other valid pawns", null) { Disabled = true });
-                }
-
-                Find.WindowStack.Add(new FloatMenu(options));
+                DrawCategoryDropdown(categoryRect);
+            }
+            if (Mouse.IsOver(categoryRect))
+            {
+                TooltipHandler.TipRegion(categoryRect, buttonText);
             }
 
-            // Second row - Quick Filters
-            currentY += 30f;
-            var quickFilterY = currentY;
-            var quickFilterX = rect.x + 5f;
-            var buttonHeight = 20f;
-            var buttonSpacing = 5f;
-
-            // Clear All button
-            var clearButtonWidth = 80f;
-            var clearButtonRect = new Rect(quickFilterX, quickFilterY, clearButtonWidth, buttonHeight);
-            if (Widgets.ButtonText(clearButtonRect, "Clear All"))
+            // Mod dropdown
+            var modRect = new Rect(categoryRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            string modButtonText = selectedModFilter == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : selectedModFilter;
+            if (Widgets.ButtonText(modRect, modButtonText))
             {
-                searchFilter = "";
-                selectedCategory = SurgeryCategory.All;
-                selectedModFilter = "All";
-                availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
-                selectedTargetPart = null;
+                DrawModDropdown(modRect);
+            }
+            if (Mouse.IsOver(modRect))
+            {
+                TooltipHandler.TipRegion(modRect, modButtonText);
+            }
+
+            // Target dropdown
+            var targetRect = new Rect(modRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            string targetButtonLabel = selectedTargetPart?.LabelCap ?? "All";
+            if (Widgets.ButtonText(targetRect, targetButtonLabel))
+            {
+                DrawTargetDropdown(targetRect);
+            }
+            if (Mouse.IsOver(targetRect))
+            {
+                TooltipHandler.TipRegion(targetRect, targetButtonLabel);
+            }
+
+            // Pawn dropdown
+            var pawnRect = new Rect(targetRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            if (Widgets.ButtonText(pawnRect, pawn.LabelShort))
+            {
+                DrawPawnDropdown(pawnRect, humanoidsOnly);
+            }
+            if (Mouse.IsOver(pawnRect))
+            {
+                TooltipHandler.TipRegion(pawnRect, pawn.LabelShort);
+            }
+
+            // Quick filter buttons on the right
+            float rightEdge = rect.xMax;
+            var implantsRect = new Rect(rightEdge - 80f, dropdownY, 80f, DROPDOWN_HEIGHT);
+            if (Widgets.ButtonText(implantsRect, "Implants"))
+            {
+                selectedCategory = SurgeryCategory.Implants;
                 ApplyFilters();
             }
-            
-            // Availability filter dropdown
-            var availabilityButtonWidth = 140f;
-            var availabilityButtonRect = new Rect(clearButtonRect.xMax + buttonSpacing, quickFilterY, availabilityButtonWidth, buttonHeight);
+
+            var availableRect = new Rect(implantsRect.x - 110f, dropdownY, 100f, DROPDOWN_HEIGHT);
             string availabilityButtonText = GetAvailabilityFilterText(availabilityFilter);
-            if (Widgets.ButtonText(availabilityButtonRect, availabilityButtonText))
+            if (Widgets.ButtonText(availableRect, availabilityButtonText))
             {
                 List<FloatMenuOption> availabilityOptions = new List<FloatMenuOption>();
                 foreach (AvailabilityFilter filter in Enum.GetValues(typeof(AvailabilityFilter)))
@@ -414,26 +2343,118 @@ namespace CorvusSurgeryUI
                 Find.WindowStack.Add(new FloatMenu(availabilityOptions));
             }
 
-            // Implants quick-filter button
-            var implantsButtonWidth = 80f;
-            var implantsButtonRect = new Rect(availabilityButtonRect.xMax + buttonSpacing, quickFilterY, implantsButtonWidth, buttonHeight);
-            if (Widgets.ButtonText(implantsButtonRect, "Implants"))
+            var clearRect = new Rect(availableRect.x - 90f, dropdownY, 80f, DROPDOWN_HEIGHT);
+            if (Widgets.ButtonText(clearRect, "Clear All"))
             {
-                selectedCategory = SurgeryCategory.Implants;
+                ClearFilters();
+            }
+        }
+
+        private void DrawCategoryDropdown(Rect rect)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            foreach (SurgeryCategory category in Enum.GetValues(typeof(SurgeryCategory)))
+            {
+                var count = allPawnSurgeries?.Count(s => category == SurgeryCategory.All || s.Category == category) ?? 0;
+                string categoryKey = category == SurgeryCategory.All ? "CorvusSurgeryUI.All" : "CorvusSurgeryUI.Category." + category.ToString();
+                options.Add(new FloatMenuOption($"{categoryKey.Translate()} ({count})", () => {
+                    selectedCategory = category;
+                    ApplyFilters();
+                }));
+            }
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void DrawModDropdown(Rect rect)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            foreach (string modName in availableMods)
+            {
+                int count;
+                if (modName == "All")
+                {
+                    count = allPawnSurgeries.Count;
+                }
+                else
+                {
+                    count = allPawnSurgeries.Count(s => (s.Recipe?.modContentPack?.Name ?? "Core") == modName);
+                }
+                
+                string displayName = modName == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : modName;
+                options.Add(new FloatMenuOption($"{displayName} ({count})", () => {
+                    selectedModFilter = modName;
+                    ApplyFilters();
+                }));
+            }
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void DrawTargetDropdown(Rect rect)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            options.Add(new FloatMenuOption("All", () => {
+                selectedTargetPart = null;
                 ApplyFilters();
+            }));
+            
+            foreach (var target in availableTargets)
+            {
+                options.Add(new FloatMenuOption(target.LabelCap, () => {
+                    selectedTargetPart = target;
+                    ApplyFilters();
+                }));
+            }
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void DrawPawnDropdown(Rect rect, bool humanoidsOnly = false)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            
+            var allPawns = Find.Maps.SelectMany(m => m.mapPawns.AllPawns)
+                .Where(p => p.Faction == Faction.OfPlayer && 
+                    (humanoidsOnly ? p.RaceProps.Humanlike : 
+                     (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null))))
+                .OrderByDescending(p => p.RaceProps.Humanlike)
+                .ThenBy(p => p.LabelShort);
+
+            foreach (var possiblePawn in allPawns)
+            {
+                string label = possiblePawn.LabelShort;
+                if (possiblePawn.RaceProps.Animal)
+                {
+                    label += $" ({possiblePawn.def.label})";
+                }
+
+                options.Add(new FloatMenuOption(label, () => {
+                    if (possiblePawn != pawn)
+                    {
+                        pawn = possiblePawn;
+                        thingForMedBills = possiblePawn;
+                        BuildFullSurgeryList();
+                        PopulateAvailableTargets();
+                        LoadQueuedBills();
+                        ApplyFilters();
+                    }
+                }));
             }
 
-            // Queue Non Allowed checkbox (third row)
-            currentY += 30f;
-            var checkboxY = currentY;
-            var checkboxRect = new Rect(rect.x + 5f, checkboxY, 200f, 20f);
-            bool newAllowQueueingDisabled = allowQueueingDisabled;
-            Widgets.CheckboxLabeled(checkboxRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
-            if (newAllowQueueingDisabled != allowQueueingDisabled)
+            if (!options.Any())
             {
-                allowQueueingDisabled = newAllowQueueingDisabled;
-                // No need to refresh filters, this affects button behavior not filtering
+                options.Add(new FloatMenuOption("No other valid pawns", null) { Disabled = true });
             }
+
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void ClearFilters()
+        {
+            searchFilter = "";
+            selectedCategory = SurgeryCategory.All;
+            selectedModFilter = "All";
+            availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
+            selectedTargetPart = null;
+            ApplyFilters();
         }
         
         private void PopulateAvailableMods()
@@ -468,24 +2489,32 @@ namespace CorvusSurgeryUI
 
         private void DrawSurgeryList(Rect rect)
         {
-            Widgets.DrawBoxSolid(rect, Color.black * 0.1f);
+            // Follow WeaponStats pattern for scroll views
+            GUI.BeginGroup(rect);
             
             var rowHeight = 70f;
             var rowSpacing = 5f;
-            var viewRect = new Rect(0f, 0f, rect.width - 20f, (rowHeight + rowSpacing) * filteredSurgeries.Count);
-            Widgets.BeginScrollView(rect, ref scrollPosition, viewRect);
+            var tableHeight = (rowHeight + rowSpacing) * filteredSurgeries.Count;
+            
+            // Inner rect for scroll content
+            Rect inRect = new Rect(0, 0, rect.width - 20f, tableHeight + 100);
+            
+            // Scroll rect covers the entire group area
+            Rect scrollRect = new Rect(0, 0, rect.width, rect.height);
+            Widgets.BeginScrollView(scrollRect, ref scrollPosition, inRect);
 
             float y = 0f;
             for (int i = 0; i < filteredSurgeries.Count; i++)
             {
                 var surgery = filteredSurgeries[i];
-                var surgeryRect = new Rect(5f, y, viewRect.width - 10f, rowHeight);
+                var surgeryRect = new Rect(5f, y, inRect.width - 10f, rowHeight);
                 
                 DrawSurgeryOption(surgeryRect, surgery, i);
                 y += rowHeight + rowSpacing;
             }
 
             Widgets.EndScrollView();
+            GUI.EndGroup();
         }
 
         private void DrawSurgeryOption(Rect rect, SurgeryOptionCached surgery, int index)
@@ -989,16 +3018,22 @@ namespace CorvusSurgeryUI
             }
         }
 
-        private void DrawQueuedBills(Rect rect)
+        private void DrawQueuedBills(Rect rect, bool showPresetSection = true)
         {
-            // Preset management section
-            var presetSectionHeight = 25f;
-            var presetRect = new Rect(rect.x, rect.y, rect.width, presetSectionHeight);
-            DrawPresetSection(presetRect);
+            float queueStartY = rect.y;
+            float queueHeight = rect.height;
             
-            // Adjust the queue area to account for preset section
-            var queueStartY = rect.y + presetSectionHeight + 5f;
-            var queueHeight = rect.height - presetSectionHeight - 5f;
+            // Preset management section (only in Overview tab)
+            if (showPresetSection)
+            {
+                var presetSectionHeight = 25f;
+                var presetRect = new Rect(rect.x, rect.y, rect.width, presetSectionHeight);
+                DrawPresetSection(presetRect);
+                
+                // Adjust the queue area to account for preset section
+                queueStartY = rect.y + presetSectionHeight + 5f;
+                queueHeight = rect.height - presetSectionHeight - 5f;
+            }
             
             // Section header
             Text.Font = GameFont.Medium;
@@ -1103,20 +3138,49 @@ namespace CorvusSurgeryUI
                 ShowSavePresetDialog();
             }
             
-            // Preset dropdown
+            // Preset dropdown (with validation indicator)
             var dropdownRect = new Rect(saveButtonRect.xMax + 10f, rect.y, 150f, rect.height);
-            if (Widgets.ButtonText(dropdownRect, selectedPreset))
+            string dropdownText = selectedPreset;
+            
+            // Add red X for invalid presets
+            if (selectedPreset != "(none)")
+            {
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (presets.ContainsKey(selectedPreset) && !presets[selectedPreset].IsValid)
+                {
+                    dropdownText = "❌ " + selectedPreset;
+                }
+            }
+            
+            if (Widgets.ButtonText(dropdownRect, dropdownText))
             {
                 ShowPresetDropdown();
             }
             
-            // Load button (only if a preset is selected)
+            // Apply button (only if a preset is selected)
             if (selectedPreset != "(none)")
             {
                 var loadButtonRect = new Rect(dropdownRect.xMax + 10f, rect.y, 80f, rect.height);
-                if (Widgets.ButtonText(loadButtonRect, "Load"))
+                if (Widgets.ButtonText(loadButtonRect, "CorvusSurgeryUI.Apply".Translate()))
                 {
                     LoadPreset(selectedPreset);
+                }
+            }
+            
+            // Single Import button
+            var importButtonRect = new Rect(dropdownRect.xMax + (selectedPreset != "(none)" ? 95f : 15f), rect.y, 80f, rect.height);
+            if (Widgets.ButtonText(importButtonRect, "Import"))
+            {
+                ShowConsolidatedImportDialog();
+            }
+            
+            // Export button (only if a preset is selected)
+            if (selectedPreset != "(none)")
+            {
+                var exportButtonRect = new Rect(importButtonRect.xMax + 10f, rect.y, 60f, rect.height);
+                if (Widgets.ButtonText(exportButtonRect, "Export"))
+                {
+                    ShowExportDialog();
                 }
             }
         }
@@ -1520,16 +3584,22 @@ namespace CorvusSurgeryUI
                 selectedPreset = "(none)";
             }));
             
-            // Add saved presets
-            foreach (var presetName in surgeryPresets.Keys)
+            // Add saved presets with validation indicators
+            var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+            foreach (var kvp in presets)
             {
-                var name = presetName; // Capture for closure
-                options.Add(new FloatMenuOption($"{name} ({surgeryPresets[name].Count} surgeries)", () => {
+                var name = kvp.Key; // Capture for closure
+                var preset = kvp.Value;
+                string displayName = preset.IsValid 
+                    ? $"{name} ({preset.Items.Count} surgeries)"
+                    : $"❌ {name} ({preset.Items.Count} surgeries - {preset.ValidationErrors.Count} issues)";
+                
+                options.Add(new FloatMenuOption(displayName, () => {
                     selectedPreset = name;
                 }));
             }
             
-            if (surgeryPresets.Count == 0)
+            if (presets.Count == 0)
             {
                 options.Add(new FloatMenuOption("No presets saved", null) { Disabled = true });
             }
@@ -1548,10 +3618,11 @@ namespace CorvusSurgeryUI
                     presetItems.Add(new SurgeryPresetItem(bill.recipe, bill.Part, bill.suspended));
                 }
                 
-                surgeryPresets[name] = presetItems;
-                Messages.Message($"Preset '{name}' saved with {presetItems.Count} surgeries.", MessageTypeDefOf.PositiveEvent);
+                SurgeryPresetManager.Instance.SavePreset(name, presetItems, () => {
+                    selectedPreset = name;
+                });
                 
-                Log.Message($"Corvus Surgery UI: Saved preset '{name}' with {presetItems.Count} surgeries");
+                Log.Message($"Corvus Surgery UI: Saved preset '{name}' with {presetItems.Count} surgeries.");
             }
             catch (Exception ex)
             {
@@ -1564,52 +3635,15 @@ namespace CorvusSurgeryUI
         {
             try
             {
-                if (!surgeryPresets.ContainsKey(name))
+                if (!SurgeryPresetManager.Instance.LoadPreset(name, pawn, thingForMedBills))
                 {
-                    Messages.Message("Preset not found.", MessageTypeDefOf.RejectInput);
                     return;
                 }
                 
-                // Clear current bills
-                if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
-                {
-                    var billsToRemove = billGiver.BillStack.Bills.OfType<Bill_Medical>().ToList();
-                    foreach (var bill in billsToRemove)
-                    {
-                        billGiver.BillStack.Delete(bill);
-                    }
-                }
-                
-                // Load preset bills
-                var presetItems = surgeryPresets[name];
-                int loadedCount = 0;
-                
-                foreach (var item in presetItems)
-                {
-                    var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
-                    if (recipe == null) continue;
-                    
-                    BodyPartRecord bodyPart = null;
-                    if (!item.BodyPartLabel.NullOrEmpty())
-                    {
-                        bodyPart = FindBodyPart(item.BodyPartLabel);
-                    }
-                    
-                    // Create and add bill
-                    if (thingForMedBills is IBillGiver billGiver2 && billGiver2.BillStack != null)
-                    {
-                        var bill = new Bill_Medical(recipe, null);
-                        bill.Part = bodyPart;
-                        bill.suspended = item.IsSuspended;
-                        billGiver2.BillStack.AddBill(bill);
-                        loadedCount++;
-                    }
-                }
-                
                 LoadQueuedBills(); // Refresh our local list
-                Messages.Message($"Loaded preset '{name}': {loadedCount} surgeries.", MessageTypeDefOf.PositiveEvent);
+                Messages.Message($"Loaded preset '{name}': {queuedBills.Count} surgeries.", MessageTypeDefOf.PositiveEvent);
                 
-                Log.Message($"Corvus Surgery UI: Loaded preset '{name}' with {loadedCount} surgeries");
+                Log.Message($"Corvus Surgery UI: Loaded preset '{name}' with {queuedBills.Count} surgeries");
             }
             catch (Exception ex)
             {
@@ -1618,7 +3652,7 @@ namespace CorvusSurgeryUI
             }
         }
 
-        private BodyPartRecord FindBodyPart(string bodyPartLabel)
+        private BodyPartRecord FindBodyPart(string bodyPartLabel, Pawn pawn)
         {
             if (bodyPartLabel.NullOrEmpty()) return null;
             
@@ -1638,6 +3672,28 @@ namespace CorvusSurgeryUI
             }
             
             return null;
+        }
+        
+        private void ShowConsolidatedImportDialog()
+        {
+            Find.WindowStack.Add(new Dialog_ConsolidatedImport());
+        }
+        
+        private void ShowImportFromSavesDialog()
+        {
+            Find.WindowStack.Add(new Dialog_ImportFromSaves());
+        }
+        
+        private void ShowExportDialog()
+        {
+            if (selectedPreset == "(none)") return;
+            
+            Find.WindowStack.Add(new Dialog_ExportPreset(selectedPreset));
+        }
+        
+        private void ShowImportFileDialog()
+        {
+            Find.WindowStack.Add(new Dialog_ImportPresetFile());
         }
     }
 
@@ -1675,6 +3731,279 @@ namespace CorvusSurgeryUI
         ShowAvailableOnly,
         MissingItem,
         MissingSkill
+    }
+
+    public enum PawnCategory
+    {
+        Colonist = 0,
+        Prisoner = 1,
+        Slave = 2,
+        Animal = 3,
+        Guest = 4
+    }
+
+    // Body part mapping for Visual Planner
+    public class BodyPartRegion
+    {
+        public string SvgId { get; set; }
+        public string BodyPartDefName { get; set; }
+        public int Index { get; set; }
+        public Rect Bounds { get; set; }
+        public bool IsSubPart { get; set; }
+        public List<string> SubParts { get; set; } = new List<string>();
+
+        public BodyPartRegion(string svgId, string bodyPartDefName, int index, Rect bounds)
+        {
+            SvgId = svgId;
+            BodyPartDefName = bodyPartDefName;
+            Index = index;
+            Bounds = bounds;
+        }
+    }
+
+    public class SvgBodyDiagram
+    {
+        private Dictionary<string, BodyPartRegion> bodyParts = new Dictionary<string, BodyPartRegion>();
+        private float svgWidth = 1000f;
+        private float svgHeight = 800f;
+
+        public SvgBodyDiagram()
+        {
+            InitializeBodyParts();
+        }
+
+        private void InitializeBodyParts()
+        {
+            // Map SVG elements to RimWorld body parts with approximate bounds
+            // These bounds correspond to the SVG coordinates
+            bodyParts["head"] = new BodyPartRegion("head", "Head", -1, new Rect(440, 30, 120, 100));
+            bodyParts["neck"] = new BodyPartRegion("neck", "Neck", -1, new Rect(485, 140, 30, 25));
+            bodyParts["left-shoulder"] = new BodyPartRegion("left-shoulder", "Shoulder", 0, new Rect(368, 178, 44, 44));
+            bodyParts["right-shoulder"] = new BodyPartRegion("right-shoulder", "Shoulder", 1, new Rect(588, 178, 44, 44));
+            bodyParts["torso"] = new BodyPartRegion("torso", "Torso", -1, new Rect(440, 180, 120, 200));
+            bodyParts["left-arm"] = new BodyPartRegion("left-arm", "Arm", 0, new Rect(320, 240, 35, 120));
+            bodyParts["right-arm"] = new BodyPartRegion("right-arm", "Arm", 1, new Rect(645, 240, 35, 120));
+            bodyParts["left-hand"] = new BodyPartRegion("left-hand", "Hand", 0, new Rect(315, 370, 40, 50));
+            bodyParts["right-hand"] = new BodyPartRegion("right-hand", "Hand", 1, new Rect(645, 370, 40, 50));
+            bodyParts["pelvis"] = new BodyPartRegion("pelvis", "Pelvis", -1, new Rect(460, 400, 80, 60));
+            bodyParts["left-leg"] = new BodyPartRegion("left-leg", "Leg", 0, new Rect(420, 480, 30, 150));
+            bodyParts["right-leg"] = new BodyPartRegion("right-leg", "Leg", 1, new Rect(550, 480, 30, 150));
+            bodyParts["left-foot"] = new BodyPartRegion("left-foot", "Foot", 0, new Rect(410, 650, 50, 30));
+            bodyParts["right-foot"] = new BodyPartRegion("right-foot", "Foot", 1, new Rect(540, 650, 50, 30));
+            
+            // Sub-containers for internal organs
+            bodyParts["spine"] = new BodyPartRegion("spine", "Spine", -1, new Rect(495, 190, 10, 180));
+
+            // Set up sub-parts for complex regions
+            bodyParts["torso"].IsSubPart = true;
+            bodyParts["torso"].SubParts.AddRange(new[] { "Liver", "Kidney", "Stomach", "Lung", "Heart", "Rib" }); // Torso contains all internal organs
+        }
+
+        public Dictionary<string, BodyPartRegion> GetBodyParts() => bodyParts;
+
+        public BodyPartRegion GetClickedBodyPart(Vector2 clickPosition, Rect drawArea)
+        {
+            // Convert click position to SVG coordinates
+            float scaleX = svgWidth / drawArea.width;
+            float scaleY = svgHeight / drawArea.height;
+            
+            Vector2 svgPosition = new Vector2(
+                clickPosition.x * scaleX,
+                clickPosition.y * scaleY
+            );
+
+            // Check which body part was clicked (prioritize smaller parts over larger ones)
+            var sortedParts = bodyParts.Values.OrderBy(bp => bp.Bounds.width * bp.Bounds.height);
+            
+            foreach (var bodyPart in sortedParts)
+            {
+                if (bodyPart.Bounds.Contains(svgPosition))
+                {
+                    return bodyPart;
+                }
+            }
+
+            return null;
+        }
+
+        public void DrawBodyDiagram(Rect drawArea, Pawn pawn)
+        {
+            // Calculate scaling to fit the draw area while maintaining aspect ratio
+            float scaleX = drawArea.width / svgWidth;
+            float scaleY = drawArea.height / svgHeight;
+            float scale = Math.Min(scaleX, scaleY);
+            
+            float scaledWidth = svgWidth * scale;
+            float scaledHeight = svgHeight * scale;
+            
+            // Center the diagram in the draw area
+            float offsetX = (drawArea.width - scaledWidth) / 2f;
+            float offsetY = (drawArea.height - scaledHeight) / 2f;
+            
+            var centeredArea = new Rect(drawArea.x + offsetX, drawArea.y + offsetY, scaledWidth, scaledHeight);
+            
+            // Draw background
+            Widgets.DrawBoxSolid(centeredArea, Color.black * 0.1f);
+            Widgets.DrawBox(centeredArea, 1);
+            
+            // Draw body parts
+            foreach (var bodyPart in bodyParts.Values)
+            {
+                DrawBodyPart(bodyPart, centeredArea, scale, pawn);
+            }
+        }
+
+        private void DrawBodyPart(BodyPartRegion bodyPart, Rect drawArea, float scale, Pawn pawn)
+        {
+            // Scale and position the body part rectangle
+            var scaledRect = new Rect(
+                drawArea.x + (bodyPart.Bounds.x * scale),
+                drawArea.y + (bodyPart.Bounds.y * scale),
+                bodyPart.Bounds.width * scale,
+                bodyPart.Bounds.height * scale
+            );
+
+            // Determine body part state for coloring
+            Color partColor = GetBodyPartColor(bodyPart, pawn);
+            
+            // Draw the body part
+            Widgets.DrawBoxSolid(scaledRect, partColor);
+            Widgets.DrawBox(scaledRect, 1);
+            
+            // Add hover effect
+            if (Mouse.IsOver(scaledRect))
+            {
+                Widgets.DrawHighlight(scaledRect);
+                
+                // Show tooltip with body part info
+                string tooltip = GetBodyPartTooltip(bodyPart, pawn);
+                if (!tooltip.NullOrEmpty())
+                {
+                    TooltipHandler.TipRegion(scaledRect, tooltip);
+                }
+            }
+        }
+
+        private BodyPartRecord FindBodyPartRecord(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.RaceProps?.body?.AllParts == null) return null;
+            
+            // Handle special cases for body part matching
+            if (bodyPart.Index >= 0)
+            {
+                // For paired parts, get all matching parts
+                var parts = pawn.RaceProps.body.AllParts
+                    .Where(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
+                if (bodyPart.SvgId.Contains("left"))
+                {
+                    // Try multiple ways to find the left part
+                    var leftPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("left") == true) ??
+                                  parts.FirstOrDefault(p => p.Label.ToLower().Contains("left")) ??
+                                  parts.FirstOrDefault(p => p.def.label.ToLower().Contains("left"));
+                    
+                    if (leftPart != null) return leftPart;
+                    
+                    // If no explicit left found, try first part (index 0)
+                    return parts.OrderBy(p => p.def.index).FirstOrDefault();
+                }
+                else if (bodyPart.SvgId.Contains("right"))
+                {
+                    // Try multiple ways to find the right part
+                    var rightPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("right") == true) ??
+                                   parts.FirstOrDefault(p => p.Label.ToLower().Contains("right")) ??
+                                   parts.FirstOrDefault(p => p.def.label.ToLower().Contains("right"));
+                    
+                    if (rightPart != null) return rightPart;
+                    
+                    // If no explicit right found, try second part (index 1)
+                    var orderedParts = parts.OrderBy(p => p.def.index).ToList();
+                    return orderedParts.Count > 1 ? orderedParts[1] : orderedParts.LastOrDefault();
+                }
+                
+                // Fallback to index-based matching for non-left/right parts
+                var sortedParts = parts.OrderBy(p => p.def.index).ToList();
+                if (bodyPart.Index < sortedParts.Count)
+                {
+                    return sortedParts[bodyPart.Index];
+                }
+            }
+            else
+            {
+                // For single parts, find by name
+                return pawn.RaceProps.body.AllParts
+                    .FirstOrDefault(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase));
+            }
+            
+            return null;
+        }
+
+        private Color GetBodyPartColor(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.health?.hediffSet == null) return Color.gray * 0.3f;
+            
+            // Find the actual body part record
+            var actualBodyPart = FindBodyPartRecord(bodyPart, pawn);
+            if (actualBodyPart == null) return Color.gray * 0.3f;
+            
+            // Check if missing
+            if (pawn.health.hediffSet.PartIsMissing(actualBodyPart))
+            {
+                return Color.red * 0.4f; // Missing parts in red
+            }
+            
+            // Check for prosthetics/bionics
+            var prosthetics = pawn.health.hediffSet.hediffs
+                .Where(h => h.Part == actualBodyPart && h.def.spawnThingOnRemoved != null)
+                .ToList();
+            
+            if (prosthetics.Any())
+            {
+                // Check if bionic (high-tech)
+                if (prosthetics.Any(p => p.def.spawnThingOnRemoved.techLevel >= TechLevel.Spacer))
+                {
+                    return Color.cyan * 0.4f; // Bionics in cyan
+                }
+                return Color.yellow * 0.4f; // Prosthetics in yellow
+            }
+            
+            // Check health status
+            float healthPercent = pawn.health.hediffSet.GetPartHealth(actualBodyPart) / actualBodyPart.def.hitPoints;
+            
+            if (healthPercent < 0.5f)
+            {
+                return Color.red * 0.3f; // Injured parts
+            }
+            else if (healthPercent < 0.8f)
+            {
+                return Color.yellow * 0.3f; // Slightly injured
+            }
+            
+            return Color.green * 0.3f; // Healthy parts
+        }
+
+        private string GetBodyPartTooltip(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.health?.hediffSet == null) return bodyPart.SvgId;
+            
+            var actualBodyPart = FindBodyPartRecord(bodyPart, pawn);
+            if (actualBodyPart == null) return bodyPart.SvgId;
+            
+            string tooltip = actualBodyPart.LabelCap.ToString();
+            
+            if (pawn.health.hediffSet.PartIsMissing(actualBodyPart))
+            {
+                tooltip += " (Missing)";
+            }
+            else
+            {
+                float healthPercent = pawn.health.hediffSet.GetPartHealth(actualBodyPart) / actualBodyPart.def.hitPoints;
+                tooltip += $" ({healthPercent:P0} health)";
+            }
+            
+            return tooltip;
+        }
     }
 
     public class SurgeryPresetItem
@@ -1743,6 +4072,327 @@ namespace CorvusSurgeryUI
                     onConfirm?.Invoke(presetName);
                     Close();
                 }
+            }
+        }
+    }
+
+    public class Dialog_ImportFromSaves : Window
+    {
+        private Vector2 scrollPosition = Vector2.zero;
+        private Dictionary<string, List<PersistentSurgeryPreset>> presetsBySave;
+
+        public Dialog_ImportFromSaves()
+        {
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+            presetsBySave = SurgeryPresetManager.Instance.GetPresetsBySave();
+        }
+
+        public override Vector2 InitialSize => new Vector2(600f, 500f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Import Presets from Other Saves");
+            Text.Font = GameFont.Small;
+
+            var currentSaveId = SurgeryPresetManager.Instance.GetCurrentSaveIdentifier();
+            var scrollRect = new Rect(0f, 40f, inRect.width, inRect.height - 80f);
+            var viewRect = new Rect(0f, 0f, scrollRect.width - 20f, CalculateViewHeight());
+
+            Widgets.BeginScrollView(scrollRect, ref scrollPosition, viewRect);
+
+            float y = 0f;
+            foreach (var saveGroup in presetsBySave)
+            {
+                if (saveGroup.Key == currentSaveId) continue; // Skip current save
+
+                var saveName = saveGroup.Value.FirstOrDefault()?.SaveDisplayName ?? "Unknown Save";
+                var headerRect = new Rect(0f, y, viewRect.width, 30f);
+                
+                Text.Font = GameFont.Medium;
+                Widgets.Label(headerRect, $"{saveName} ({saveGroup.Value.Count} presets)");
+                Text.Font = GameFont.Small;
+                y += 35f;
+
+                foreach (var preset in saveGroup.Value)
+                {
+                    var presetRect = new Rect(20f, y, viewRect.width - 40f, 25f);
+                    
+                    string presetLabel = preset.IsValid 
+                        ? $"{preset.Name} ({preset.Items.Count} surgeries)"
+                        : $"❌ {preset.Name} ({preset.Items.Count} surgeries - may have issues)";
+                    
+                    var labelRect = new Rect(presetRect.x, presetRect.y, presetRect.width - 100f, presetRect.height);
+                    Widgets.Label(labelRect, presetLabel);
+                    
+                    var importButtonRect = new Rect(presetRect.xMax - 90f, presetRect.y, 80f, 20f);
+                    if (Widgets.ButtonText(importButtonRect, "Import"))
+                    {
+                        SurgeryPresetManager.Instance.ImportPresetFromOtherSave(preset.Name, saveGroup.Key);
+                        Close();
+                    }
+                    
+                    y += 30f;
+                }
+                
+                y += 10f; // Extra spacing between saves
+            }
+
+            Widgets.EndScrollView();
+
+            // Close button
+            var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
+            if (Widgets.ButtonText(closeButtonRect, "Close"))
+            {
+                Close();
+            }
+        }
+
+        private float CalculateViewHeight()
+        {
+            float height = 0f;
+            var currentSaveId = SurgeryPresetManager.Instance.GetCurrentSaveIdentifier();
+            
+            foreach (var saveGroup in presetsBySave)
+            {
+                if (saveGroup.Key == currentSaveId) continue;
+                height += 35f; // Header
+                height += saveGroup.Value.Count * 30f; // Presets
+                height += 10f; // Spacing
+            }
+            
+            return height;
+        }
+    }
+
+    public class Dialog_ExportPreset : Window
+    {
+        private string presetName;
+        private string filePath = "";
+
+        public Dialog_ExportPreset(string presetName)
+        {
+            this.presetName = presetName;
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+            this.filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), $"{presetName}_preset.json");
+        }
+
+        public override Vector2 InitialSize => new Vector2(500f, 300f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, $"Export Preset: {presetName}");
+            Text.Font = GameFont.Small;
+
+            var labelRect = new Rect(0f, 50f, inRect.width, 25f);
+            Widgets.Label(labelRect, "Export to file:");
+
+            var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
+            filePath = Widgets.TextField(textFieldRect, filePath);
+
+            var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
+            if (Widgets.ButtonText(browseButtonRect, "Browse"))
+            {
+                // Note: RimWorld doesn't have a native file browser, so we'll use a simple path
+                Messages.Message("Tip: Modify the path above or use the default location (Desktop)", MessageTypeDefOf.NeutralEvent);
+            }
+
+            var infoRect = new Rect(0f, 130f, inRect.width, 80f);
+            Widgets.Label(infoRect, "This will export the preset to a JSON file that can be shared with other players. They can import it using the 'Import File' button.");
+
+            // Buttons
+            var buttonWidth = 80f;
+            var buttonHeight = 35f;
+            var spacing = 20f;
+            var totalButtonWidth = (buttonWidth * 2) + spacing;
+            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+
+            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            {
+                Close();
+            }
+
+            var exportRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(exportRect, "Export"))
+            {
+                if (!filePath.NullOrEmpty())
+                {
+                    SurgeryPresetManager.Instance.ExportPreset(presetName, filePath);
+                    Close();
+                }
+            }
+        }
+    }
+
+    public class Dialog_ImportPresetFile : Window
+    {
+        private string filePath = "";
+
+        public Dialog_ImportPresetFile()
+        {
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+            this.filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "preset.json");
+        }
+
+        public override Vector2 InitialSize => new Vector2(500f, 300f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Import Preset from File");
+            Text.Font = GameFont.Small;
+
+            var labelRect = new Rect(0f, 50f, inRect.width, 25f);
+            Widgets.Label(labelRect, "Import from file:");
+
+            var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
+            filePath = Widgets.TextField(textFieldRect, filePath);
+
+            var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
+            if (Widgets.ButtonText(browseButtonRect, "Browse"))
+            {
+                Messages.Message("Tip: Modify the path above to point to your preset JSON file", MessageTypeDefOf.NeutralEvent);
+            }
+
+            var infoRect = new Rect(0f, 130f, inRect.width, 80f);
+            Widgets.Label(infoRect, "Select a JSON preset file exported from this or another player's game. The preset will be imported and tagged for your current save.");
+
+            // Buttons
+            var buttonWidth = 80f;
+            var buttonHeight = 35f;
+            var spacing = 20f;
+            var totalButtonWidth = (buttonWidth * 2) + spacing;
+            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+
+            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            {
+                Close();
+            }
+
+            var importRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(importRect, "Import"))
+            {
+                if (!filePath.NullOrEmpty() && File.Exists(filePath))
+                {
+                    SurgeryPresetManager.Instance.ImportPreset(filePath);
+                    Close();
+                }
+                else
+                {
+                    Messages.Message("File not found. Please check the path.", MessageTypeDefOf.RejectInput);
+                }
+            }
+        }
+    }
+
+    public class Dialog_ConsolidatedImport : Window
+    {
+        public Dialog_ConsolidatedImport()
+        {
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+        }
+
+        public override Vector2 InitialSize => new Vector2(400f, 250f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Import Presets");
+            Text.Font = GameFont.Small;
+
+            var infoRect = new Rect(0f, 40f, inRect.width, 40f);
+            Widgets.Label(infoRect, "Choose import source:");
+
+            // Import from Other Saves button
+            var importSavesRect = new Rect(50f, 90f, inRect.width - 100f, 35f);
+            if (Widgets.ButtonText(importSavesRect, "Import from Other Saves"))
+            {
+                Close();
+                Find.WindowStack.Add(new Dialog_ImportFromSaves());
+            }
+
+            // Import from File button  
+            var importFileRect = new Rect(50f, 135f, inRect.width - 100f, 35f);
+            if (Widgets.ButtonText(importFileRect, "Import from File"))
+            {
+                Close();
+                Find.WindowStack.Add(new Dialog_ImportPresetFile());
+            }
+
+            // Close button
+            var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
+            if (Widgets.ButtonText(closeButtonRect, "Close"))
+            {
+                Close();
+            }
+        }
+    }
+
+    public class Dialog_OverwriteConfirmation : Window
+    {
+        private string presetName;
+        private string existingSaveName;
+        private Action onConfirm;
+        private Action onCancel;
+
+        public Dialog_OverwriteConfirmation(string presetName, string existingSaveName, Action onConfirm, Action onCancel = null)
+        {
+            this.presetName = presetName;
+            this.existingSaveName = existingSaveName;
+            this.onConfirm = onConfirm;
+            this.onCancel = onCancel;
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+        }
+
+        public override Vector2 InitialSize => new Vector2(450f, 200f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Preset Already Exists");
+            Text.Font = GameFont.Small;
+
+            var messageRect = new Rect(0f, 40f, inRect.width, 80f);
+            string message = $"A preset named '{presetName}' with the same surgeries already exists in '{existingSaveName}'.\n\nDo you want to overwrite it?";
+            Widgets.Label(messageRect, message);
+
+            // Buttons
+            var buttonWidth = 80f;
+            var buttonHeight = 35f;
+            var spacing = 20f;
+            var totalButtonWidth = (buttonWidth * 2) + spacing;
+            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+
+            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            {
+                onCancel?.Invoke();
+                Close();
+            }
+
+            var overwriteRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(overwriteRect, "Overwrite"))
+            {
+                onConfirm?.Invoke();
+                Close();
             }
         }
     }

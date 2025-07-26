@@ -1,0 +1,96 @@
+<svg viewBox="0 0 1000 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .container { fill: #2f2f2f; stroke: #ffffff; stroke-width: 2; cursor: pointer; }
+      .container:hover { fill: #3f3f3f; stroke: #ffffff; }
+      .vital { fill: #2f2f2f; stroke: #ffffff; }
+      .vital:hover { fill: #3f3f3f; stroke: #ffffff; }
+      .limb { fill: #2f2f2f; stroke: #ffffff; }
+      .limb:hover { fill: #3f3f3f; stroke: #ffffff; }
+      .connector { fill: #2f2f2f; stroke: #ffffff; }
+      .connector:hover { fill: #3f3f3f; stroke: #ffffff; }
+    </style>
+  </defs>
+  
+  <!-- Head -->
+  <g id="head" class="container vital">
+    <rect x="440" y="30" width="120" height="100" rx="8"/>
+  </g>
+  
+  <!-- Neck (gap between head and torso) -->
+  <g id="neck" class="container connector">
+    <rect x="485" y="140" width="30" height="25" rx="3"/>
+  </g>
+  
+  <!-- Left Shoulder (spread outward) -->
+  <g id="left-shoulder" class="container connector">
+    <rect x="368" y="178" width="44" height="44" rx="5"/>
+  </g>
+  
+  <!-- Right Shoulder (spread outward) -->
+  <g id="right-shoulder" class="container connector">
+    <rect x="588" y="178" width="44" height="44" rx="5"/>
+  </g>
+  
+  <!-- Torso (gap from neck and shoulders) -->
+  <g id="torso" class="container vital">
+    <rect x="440" y="180" width="120" height="200" rx="8"/>
+  </g>
+  
+  <!-- Left Arm (straight down from shoulder) -->
+  <g id="left-arm" class="container limb">
+    <rect x="320" y="240" width="35" height="120" rx="8"/>
+  </g>
+  
+  <!-- Right Arm (straight down from shoulder) -->
+  <g id="right-arm" class="container limb">
+    <rect x="645" y="240" width="35" height="120" rx="8"/>
+  </g>
+  
+  <!-- Left Hand (straight down from arm) -->
+  <g id="left-hand" class="container limb">
+    <rect x="315" y="370" width="40" height="50" rx="5"/>
+  </g>
+  
+  <!-- Right Hand (straight down from arm) -->
+  <g id="right-hand" class="container limb">
+    <rect x="645" y="370" width="40" height="50" rx="5"/>
+  </g>
+  
+  <!-- Pelvis (gap from torso) -->
+  <g id="pelvis" class="container connector">
+    <rect x="460" y="400" width="80" height="60" rx="5"/>
+  </g>
+  
+  <!-- Left Leg (spread outward with gap from pelvis) -->
+  <g id="left-leg" class="container limb">
+    <rect x="420" y="480" width="30" height="150" rx="8"/>
+  </g>
+  
+  <!-- Right Leg (spread outward with gap from pelvis) -->
+  <g id="right-leg" class="container limb">
+    <rect x="550" y="480" width="30" height="150" rx="8"/>
+  </g>
+  
+  <!-- Left Foot (gap from leg) -->
+  <g id="left-foot" class="container limb">
+    <rect x="410" y="650" width="50" height="30" rx="5"/>
+  </g>
+  
+  <!-- Right Foot (gap from leg) -->
+  <g id="right-foot" class="container limb">
+    <rect x="540" y="650" width="50" height="30" rx="5"/>
+  </g>
+  
+  <!-- Additional containers that might be useful -->
+  
+  <!-- Ribcage (sub-container of torso) -->
+  <g id="ribcage" class="container" opacity="0.6">
+    <rect x="450" y="195" width="100" height="75" rx="8" fill="none" stroke="#8b956d" stroke-dasharray="2,2"/>
+  </g>
+  
+  <!-- Spine (sub-container of torso) -->
+  <g id="spine" class="container" opacity="0.6">
+    <rect x="495" y="190" width="10" height="180" rx="2" fill="none" stroke="#8b956d" stroke-dasharray="2,2"/>
+  </g>
+</svg>
