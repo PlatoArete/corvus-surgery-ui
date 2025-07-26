@@ -708,6 +708,19 @@ namespace CorvusSurgeryUI
 
         // Surgery presets
         private string selectedPreset = "(none)";
+        
+        // Presets tab scroll position
+        private Vector2 presetsScrollPosition = Vector2.zero;
+        
+        // Presets tab filters (reset to defaults each session)
+        private bool showColonists = true;
+        private bool showPrisoners = true;
+        private bool showSlaves = true;
+        private bool showAnimals = true;
+        private bool showGuests = false;
+        
+        // Presets tab selected pawn
+        private Pawn selectedPresetsPawn = null;
 
         // Performance optimization - static caches
         private static Dictionary<RecipeDef, SurgeryCategory> recipeCategoryCache = new Dictionary<RecipeDef, SurgeryCategory>();
@@ -725,7 +738,8 @@ namespace CorvusSurgeryUI
             // Initialize tabs
             tabs = new List<TabRecord>
             {
-                new TabRecord("Overview", () => { selectedTabIndex = 0; }, () => selectedTabIndex == 0)
+                new TabRecord("Overview", () => { selectedTabIndex = 0; }, () => selectedTabIndex == 0),
+                new TabRecord("Presets", () => { selectedTabIndex = 1; }, () => selectedTabIndex == 1)
             };
             
             // Load last selected tab from settings
@@ -764,6 +778,10 @@ namespace CorvusSurgeryUI
             if (selectedTabIndex == 0)
             {
                 DrawOverviewTab(inRect);
+            }
+            else if (selectedTabIndex == 1)
+            {
+                DrawPresetsTab(inRect);
             }
             
             // Save selected tab
@@ -824,6 +842,436 @@ namespace CorvusSurgeryUI
             // Surgery Queue (right side)
             var queuedBillsRect = new Rect(surgeryListRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
             DrawQueuedBills(queuedBillsRect);
+        }
+
+        private void DrawPresetsTab(Rect rect)
+        {
+            float currentY = rect.y + 5f;
+            
+            // Header
+            var eligiblePawns = GetAllEligiblePawns();
+            var headerRect = new Rect(rect.x, currentY, rect.width, 30f);
+            Text.Font = GameFont.Medium;
+            Widgets.Label(headerRect, $"Surgery Presets - {eligiblePawns.Count} eligible pawns");
+            Text.Font = GameFont.Small;
+            currentY = headerRect.yMax + 5f;
+
+            // Filter checkboxes
+            var filterRect = new Rect(rect.x, currentY, rect.width, 30f);
+            bool filtersChanged = DrawPresetFilters(filterRect);
+            currentY = filterRect.yMax + 10f;
+            
+            // If filters changed, get updated pawn list
+            if (filtersChanged)
+            {
+                eligiblePawns = GetAllEligiblePawns();
+                
+                // Update header count
+                Text.Font = GameFont.Medium;
+                Widgets.Label(headerRect, $"Surgery Presets - {eligiblePawns.Count} eligible pawns");
+                Text.Font = GameFont.Small;
+            }
+
+            // Ensure we have a selected pawn (default to first)
+            if (selectedPresetsPawn == null || !eligiblePawns.Contains(selectedPresetsPawn))
+            {
+                selectedPresetsPawn = eligiblePawns.FirstOrDefault();
+            }
+
+            // Split the remaining area for pawn grid and queued bills
+            var remainingRect = new Rect(rect.x, currentY, rect.width, rect.height - (currentY - rect.y));
+            
+            var queueWidth = 500f;
+            var pawnGridWidth = remainingRect.width - queueWidth - 10f;
+
+            // Pawn Grid (left side)
+            var pawnGridRect = new Rect(remainingRect.x, remainingRect.y, pawnGridWidth, remainingRect.height);
+            DrawPawnGrid(pawnGridRect, eligiblePawns);
+
+            // Surgery Queue (right side) - only if we have a selected pawn
+            if (selectedPresetsPawn != null)
+            {
+                var queuedBillsRect = new Rect(pawnGridRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
+                DrawPresetsQueuedBills(queuedBillsRect, selectedPresetsPawn);
+            }
+        }
+
+        private List<Pawn> GetAllEligiblePawns()
+        {
+            var allPawns = new List<Pawn>();
+            
+            // Get all maps
+            var maps = Current.Game?.Maps;
+            if (maps == null) return allPawns;
+            
+            foreach (var map in maps)
+            {
+                if (map?.mapPawns == null) continue;
+                
+                // Get all pawns that can have surgery
+                var mapPawns = map.mapPawns.AllPawnsSpawned.Where(p => CanHaveSurgery(p));
+                allPawns.AddRange(mapPawns);
+            }
+            
+            // Apply filters and return sorted list
+            return FilterAndSortPawns(allPawns);
+        }
+        
+        private List<Pawn> FilterAndSortPawns(List<Pawn> pawns)
+        {
+            var filteredPawns = new List<Pawn>();
+            
+            foreach (var pawn in pawns)
+            {
+                var category = GetPawnCategory(pawn);
+                
+                // Apply filters
+                bool shouldInclude = false;
+                switch (category)
+                {
+                    case PawnCategory.Colonist:
+                        shouldInclude = showColonists;
+                        break;
+                    case PawnCategory.Prisoner:
+                        shouldInclude = showPrisoners;
+                        break;
+                    case PawnCategory.Slave:
+                        shouldInclude = showSlaves;
+                        break;
+                    case PawnCategory.Animal:
+                        shouldInclude = showAnimals;
+                        break;
+                    case PawnCategory.Guest:
+                        shouldInclude = showGuests;
+                        break;
+                }
+                
+                if (shouldInclude)
+                {
+                    filteredPawns.Add(pawn);
+                }
+            }
+            
+            // Sort by category, then alphabetically within category
+            return filteredPawns
+                .OrderBy(p => (int)GetPawnCategory(p))
+                .ThenBy(p => p.LabelShort)
+                .ToList();
+        }
+        
+        private PawnCategory GetPawnCategory(Pawn pawn)
+        {
+            // Colony-owned animals only (not wild animals or animals from other factions)
+            if (pawn.RaceProps.Animal && pawn.Faction == Faction.OfPlayer)
+            {
+                return PawnCategory.Animal;
+            }
+            
+            if (pawn.IsSlave)
+            {
+                return PawnCategory.Slave;
+            }
+            
+            if (pawn.IsPrisoner)
+            {
+                return PawnCategory.Prisoner;
+            }
+            
+            if (pawn.IsColonist)
+            {
+                return PawnCategory.Colonist;
+            }
+            
+            // Check if it's a guest (quest pawn, trader, hospitality guest, etc.)
+            if (IsGuest(pawn))
+            {
+                return PawnCategory.Guest;
+            }
+            
+            // Default to guest for any other non-faction pawns (including wild animals)
+            return PawnCategory.Guest;
+        }
+        
+        private bool IsGuest(Pawn pawn)
+        {
+            // Quest pawns
+            if (pawn.questTags?.Any() == true)
+            {
+                return true;
+            }
+            
+            // Trade caravan members
+            if (pawn.TraderKind != null || pawn.Faction?.def?.categoryTag == "TradingCompany")
+            {
+                return true;
+            }
+            
+            // Hospitality mod guests (check for guest beds or hospitality status)
+            if (pawn.guest != null && pawn.guest.GuestStatus == GuestStatus.Guest)
+            {
+                return true;
+            }
+            
+            // Non-player faction pawns that aren't prisoners/slaves
+            if (pawn.Faction != null && pawn.Faction != Faction.OfPlayer && !pawn.IsPrisoner && !pawn.IsSlave)
+            {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        private bool DrawPresetFilters(Rect rect)
+        {
+            bool changed = false;
+            float currentX = rect.x;
+            const float checkboxWidth = 100f;
+            const float spacing = 10f;
+            
+            // Store original values to detect changes
+            bool origColonists = showColonists;
+            bool origPrisoners = showPrisoners;
+            bool origSlaves = showSlaves;
+            bool origAnimals = showAnimals;
+            bool origGuests = showGuests;
+            
+            // Draw checkboxes horizontally
+            var colonistRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(colonistRect, "Colonists", ref showColonists);
+            currentX += checkboxWidth + spacing;
+            
+            var prisonerRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(prisonerRect, "Prisoners", ref showPrisoners);
+            currentX += checkboxWidth + spacing;
+            
+            var slaveRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(slaveRect, "Slaves", ref showSlaves);
+            currentX += checkboxWidth + spacing;
+            
+            var animalRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(animalRect, "Animals", ref showAnimals);
+            currentX += checkboxWidth + spacing;
+            
+            var guestRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
+            Widgets.CheckboxLabeled(guestRect, "Guests", ref showGuests);
+            
+            // Check if any filters changed
+            changed = origColonists != showColonists || 
+                     origPrisoners != showPrisoners || 
+                     origSlaves != showSlaves || 
+                     origAnimals != showAnimals || 
+                     origGuests != showGuests;
+            
+            return changed;
+        }
+        
+        private void DrawPawnGrid(Rect rect, List<Pawn> eligiblePawns)
+        {
+            // Calculate grid layout
+            const float cardWidth = 120f;
+            const float cardHeight = 140f;
+            const float spacing = 10f;
+            
+            int columns = Mathf.FloorToInt((rect.width + spacing) / (cardWidth + spacing));
+            int rows = Mathf.CeilToInt((float)eligiblePawns.Count / columns);
+            
+            var viewRect = new Rect(0f, 0f, rect.width - 16f, rows * (cardHeight + spacing));
+            
+            Widgets.BeginScrollView(rect, ref presetsScrollPosition, viewRect);
+            
+            // Draw pawn cards
+            for (int i = 0; i < eligiblePawns.Count; i++)
+            {
+                var pawn = eligiblePawns[i];
+                int col = i % columns;
+                int row = i / columns;
+                
+                var cardRect = new Rect(
+                    col * (cardWidth + spacing), 
+                    row * (cardHeight + spacing), 
+                    cardWidth, 
+                    cardHeight
+                );
+                
+                DrawPawnCard(cardRect, pawn, pawn == selectedPresetsPawn);
+            }
+            
+            Widgets.EndScrollView();
+        }
+        
+        private void DrawPresetsQueuedBills(Rect rect, Pawn pawn)
+        {
+            // Update queued bills for the selected pawn
+            UpdateQueuedBills(pawn);
+            
+            // Use the same DrawQueuedBills method as the Overview tab
+            DrawQueuedBills(rect);
+        }
+        
+        private void UpdateQueuedBills(Pawn pawn)
+        {
+            // Temporarily set the thingForMedBills to the selected pawn
+            var previousThing = thingForMedBills;
+            thingForMedBills = pawn;
+            
+            // Load the queued bills for this pawn
+            LoadQueuedBills();
+            
+            // Restore the previous thing (not strictly necessary for presets tab, but good practice)
+            // thingForMedBills = previousThing; // Actually, let's keep it as the selected pawn for consistency
+        }
+        
+        private bool CanHaveSurgery(Pawn pawn)
+        {
+            if (pawn?.health?.hediffSet == null) return false;
+            
+            // Same logic as in the original mod
+            return pawn.RaceProps.Humanlike || (pawn.RaceProps.Animal && pawn.health.hediffSet != null);
+        }
+        
+        private void DrawPawnCard(Rect cardRect, Pawn pawn, bool isSelected = false)
+        {
+            // Card background - highlight if selected
+            Color backgroundColor = isSelected ? Color.blue * 0.3f : Color.black * 0.2f;
+            Widgets.DrawBoxSolid(cardRect, backgroundColor);
+            
+            // Border - thicker if selected
+            int borderWidth = isSelected ? 2 : 1;
+            Color borderColor = isSelected ? Color.cyan : Color.white;
+            GUI.color = borderColor;
+            Widgets.DrawBox(cardRect, borderWidth);
+            GUI.color = Color.white;
+            
+            // Portrait area
+            var portraitRect = new Rect(cardRect.x + 5f, cardRect.y + 5f, cardRect.width - 10f, 80f);
+            
+            // Draw actual pawn portrait using RimWorld's portrait system
+            try
+            {
+                // Get or create portrait from RimWorld's cache
+                var portrait = PortraitsCache.Get(pawn, new Vector2(portraitRect.width, portraitRect.height), Rot4.South, default(Vector3), 1f);
+                
+                if (portrait != null)
+                {
+                    GUI.DrawTexture(portraitRect, portrait);
+                }
+                else
+                {
+                    // Fallback to colored rectangle if portrait fails
+                    DrawFallbackPortrait(portraitRect, pawn);
+                }
+            }
+            catch (Exception ex)
+            {
+                // If portrait rendering fails, use fallback
+                Log.Warning($"Corvus Surgery UI: Failed to render portrait for {pawn.LabelShort}: {ex.Message}");
+                DrawFallbackPortrait(portraitRect, pawn);
+            }
+            
+            // Pawn name
+            var nameRect = new Rect(cardRect.x + 2f, portraitRect.yMax + 5f, cardRect.width - 4f, 20f);
+            Text.Font = GameFont.Tiny;
+            Text.Anchor = TextAnchor.MiddleCenter;
+            Widgets.Label(nameRect, pawn.LabelShort.Truncate(nameRect.width));
+            
+            // Pawn status/type
+            var statusRect = new Rect(cardRect.x + 2f, nameRect.yMax, cardRect.width - 4f, 15f);
+            string status = "";
+            switch (GetPawnCategory(pawn))
+            {
+                case PawnCategory.Colonist:
+                    status = "Colonist";
+                    break;
+                case PawnCategory.Prisoner:
+                    status = "Prisoner";
+                    break;
+                case PawnCategory.Slave:
+                    status = "Slave";
+                    break;
+                case PawnCategory.Animal:
+                    status = "Animal";
+                    break;
+                case PawnCategory.Guest:
+                    status = "Guest";
+                    break;
+                default:
+                    status = "Unknown";
+                    break;
+            }
+            
+            GUI.color = Color.gray;
+            Widgets.Label(statusRect, status);
+            GUI.color = Color.white;
+            
+            // Location info
+            var locationRect = new Rect(cardRect.x + 2f, statusRect.yMax, cardRect.width - 4f, 15f);
+            string location = pawn.Map?.Parent?.Label ?? "Unknown";
+            Widgets.Label(locationRect, location.Truncate(locationRect.width));
+            
+            // Reset text settings to defaults
+            Text.Anchor = TextAnchor.UpperLeft;
+            Text.Font = GameFont.Small;
+            
+            // Click handling - select pawn for presets tab
+            if (Widgets.ButtonInvisible(cardRect))
+            {
+                selectedPresetsPawn = pawn;
+            }
+            
+            // Hover effect
+            if (Mouse.IsOver(cardRect))
+            {
+                Widgets.DrawHighlight(cardRect);
+                TooltipHandler.TipRegion(cardRect, $"{pawn.LabelShort}\n{status}\nLocation: {location}");
+            }
+        }
+        
+        private void DrawFallbackPortrait(Rect portraitRect, Pawn pawn)
+        {
+            // Fallback portrait with better visuals
+            Color pawnColor = Color.gray;
+            if (pawn.IsColonist) pawnColor = Color.green;
+            else if (pawn.IsPrisoner) pawnColor = Color.red;
+            else if (pawn.RaceProps.Animal) pawnColor = Color.yellow;
+            
+            // Draw gradient background
+            Widgets.DrawBoxSolid(portraitRect, pawnColor * 0.3f);
+            
+            // Add border
+            Widgets.DrawBox(portraitRect, 1);
+            
+            // Add a simple icon/initial in the center
+            var iconRect = new Rect(portraitRect.center.x - 15f, portraitRect.center.y - 15f, 30f, 30f);
+            
+            // Store current text settings
+            var originalFont = Text.Font;
+            var originalAnchor = Text.Anchor;
+            
+            Text.Font = GameFont.Medium;
+            Text.Anchor = TextAnchor.MiddleCenter;
+            
+            string icon;
+            if (pawn.RaceProps.Animal)
+            {
+                icon = "A"; // Simple "A" for Animal
+            }
+            else
+            {
+                icon = !string.IsNullOrEmpty(pawn.LabelShort) ? pawn.LabelShort.Substring(0, 1).ToUpper() : "?";
+            }
+            
+            // Draw with high contrast
+            GUI.color = Color.black;
+            var shadowRect = new Rect(iconRect.x + 1f, iconRect.y + 1f, iconRect.width, iconRect.height);
+            Widgets.Label(shadowRect, icon);
+            
+            GUI.color = Color.white;
+            Widgets.Label(iconRect, icon);
+            
+            // Restore text settings
+            Text.Font = originalFont;
+            Text.Anchor = originalAnchor;
+            GUI.color = Color.white;
         }
 
         private void DrawFilters(Rect rect)
@@ -2295,6 +2743,15 @@ namespace CorvusSurgeryUI
         ShowAvailableOnly,
         MissingItem,
         MissingSkill
+    }
+
+    public enum PawnCategory
+    {
+        Colonist = 0,
+        Prisoner = 1,
+        Slave = 2,
+        Animal = 3,
+        Guest = 4
     }
 
     public class SurgeryPresetItem
