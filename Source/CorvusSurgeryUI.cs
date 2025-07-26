@@ -9,21 +9,40 @@ using System.Reflection;
 
 namespace CorvusSurgeryUI
 {
-    [StaticConstructorOnStartup]
-    public static class CorvusSurgeryUIMod
+    public class CorvusSurgeryUISettings : ModSettings
     {
-        static CorvusSurgeryUIMod()
+        public int lastSelectedTabIndex = 0;
+
+        public override void ExposeData()
         {
-            var harmony = new Harmony("corvus.surgery.ui");
+            Scribe_Values.Look(ref lastSelectedTabIndex, "lastSelectedTabIndex", 0);
+            base.ExposeData();
+        }
+    }
+
+    public class CorvusSurgeryUIMod : Mod
+    {
+        public static CorvusSurgeryUISettings settings;
+        private static Harmony harmony;
+
+        public CorvusSurgeryUIMod(ModContentPack content) : base(content)
+        {
+            settings = GetSettings<CorvusSurgeryUISettings>();
+            harmony = new Harmony("corvus.surgery.ui");
             harmony.PatchAll();
             
             Log.Message("Corvus Surgery UI: Initialized");
         }
-        
-        // Method to clear caches - calls the method in Dialog class
-        public static void ClearCaches()
+
+        public override void WriteSettings()
         {
-            Dialog_CorvusSurgeryPlanner.ClearStaticCaches();
+            base.WriteSettings();
+            settings.Write();
+        }
+
+        public override string SettingsCategory()
+        {
+            return "Corvus Surgery UI";
         }
     }
 
@@ -149,6 +168,18 @@ namespace CorvusSurgeryUI
     // Main dialog window for enhanced surgery planning
     public class Dialog_CorvusSurgeryPlanner : Window
     {
+        private const float TAB_HEIGHT = 35f;
+        private const float FILTER_HEIGHT = 70f;
+        private const float DROPDOWN_WIDTH = 150f;
+        private const float BUTTON_SPACING = 10f;
+        private const float CONTENT_SPACING = 5f;
+        private const float LABEL_HEIGHT = 20f;
+        private const float DROPDOWN_HEIGHT = 25f;
+        private const float SECTION_SPACING = 5f;
+
+        private int selectedTabIndex = 0;
+        private List<TabRecord> tabs;
+        
         private Pawn pawn;
         private Vector2 scrollPosition;
         private string searchFilter = "";
@@ -189,6 +220,15 @@ namespace CorvusSurgeryUI
             this.doCloseX = true;
             this.absorbInputAroundWindow = true;
             
+            // Initialize tabs
+            tabs = new List<TabRecord>
+            {
+                new TabRecord("Overview", () => { selectedTabIndex = 0; }, () => selectedTabIndex == 0)
+            };
+            
+            // Load last selected tab from settings
+            selectedTabIndex = CorvusSurgeryUIMod.settings.lastSelectedTabIndex;
+            
             // Initialize static caches if needed
             InitializeStaticCaches();
             
@@ -201,51 +241,57 @@ namespace CorvusSurgeryUI
             ApplyFilters();
         }
 
-        public override Vector2 InitialSize => new Vector2(1200f, 700f);
+        public override Vector2 InitialSize => new Vector2(1200f, 800f); // Increased from 750f to 800f
 
         protected override void SetInitialSizeAndPosition()
         {
-            windowRect = new Rect((UI.screenWidth - InitialSize.x) / 2f, (UI.screenHeight - InitialSize.y) / 2f, InitialSize.x, InitialSize.y);
+            windowRect = new Rect((UI.screenWidth - InitialSize.x) / 2f, 
+                                (UI.screenHeight - InitialSize.y) / 2f, 
+                                InitialSize.x, InitialSize.y);
+            windowRect.y = Mathf.Max(15f, windowRect.y); // Ensure window doesn't start too high
         }
 
         public override void DoWindowContents(Rect inRect)
         {
-            // Title
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            var surgeryCount = filteredSurgeries?.Count ?? 0;
-            Widgets.Label(titleRect, $"Surgery Planner - {pawn.LabelShort} ({surgeryCount} surgeries found)");
-            Text.Font = GameFont.Small;
+            // Follow WeaponStats pattern exactly - adjust rect once for tabs
+            inRect.yMin += 35;
 
-            // Filters section
-            Rect filtersRect = new Rect(0f, 35f, inRect.width, 130f); // Moved up from 55f since subtitle was removed
-            DrawFilters(filtersRect);
+            // Draw tabs
+            TabDrawer.DrawTabs(inRect, tabs);
 
-            // Split the remaining area: left for available surgeries, right for queue
-            var remainingHeight = inRect.height - 170f; // Reduced from 190f since we moved filters up
-            var queueWidth = 500f; // Increased from 400f for less clutter
-            var surgeryListWidth = inRect.width - queueWidth - 10f; // Rest for surgeries
-
-            // Available Surgeries (left side)
-            Rect surgeryListRect = new Rect(0f, 170f, surgeryListWidth, remainingHeight); // Reduced Y from 190f
-            DrawSurgeryList(surgeryListRect);
-
-            // Surgery Queue (right side)
-            Rect queuedBillsRect = new Rect(surgeryListWidth + 10f, 170f, queueWidth, remainingHeight); // Reduced Y from 190f
-            DrawQueuedBills(queuedBillsRect);
+            if (selectedTabIndex == 0)
+            {
+                DrawOverviewTab(inRect);
+            }
+            
+            // Save selected tab
+            if (CorvusSurgeryUIMod.settings.lastSelectedTabIndex != selectedTabIndex)
+            {
+                CorvusSurgeryUIMod.settings.lastSelectedTabIndex = selectedTabIndex;
+                CorvusSurgeryUIMod.settings.Write();
+            }
         }
 
-        private void DrawFilters(Rect rect)
+        private void DrawOverviewTab(Rect rect)
         {
-            Widgets.DrawBoxSolid(rect, Color.grey * 0.2f);
+            float currentY = rect.y + 5f; // Start with a small padding
+
+            // Draw filters section
+            var filtersRect = new Rect(rect.x, currentY, rect.width, FILTER_HEIGHT);
+            DrawFilters(filtersRect);
+            currentY += FILTER_HEIGHT + SECTION_SPACING;
+
+            // Info bar with pawn name and surgery count
+            var surgeryCount = filteredSurgeries?.Count ?? 0;
+            var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
+            Widgets.Label(infoRect, $"{pawn.LabelShort} ({surgeryCount} surgeries found)");
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            // Search and Queue Non Allowed controls
+            var searchLabelRect = new Rect(rect.x, currentY + 2f, 50f, DROPDOWN_HEIGHT);
+            Widgets.Label(searchLabelRect, "Search:");
             
-            var currentY = rect.y + 5f;
-            
-            // Search filter (top row)
-            Rect searchLabelRect = new Rect(rect.x + 5f, currentY, 50f, 20f);
-            Widgets.Label(searchLabelRect, "CorvusSurgeryUI.Search".Translate());
-            
-            Rect searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 180f, 25f);
+            var searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 200f, DROPDOWN_HEIGHT);
             string newFilter = Widgets.TextField(searchRect, searchFilter);
             if (newFilter != searchFilter)
             {
@@ -253,190 +299,230 @@ namespace CorvusSurgeryUI
                 ApplyFilters();
             }
 
-            // Category filter (top row, continued)
-            Rect categoryLabelRect = new Rect(searchRect.xMax + 15f, currentY, 60f, 20f);
-            Widgets.Label(categoryLabelRect, "CorvusSurgeryUI.Category".Translate());
+            var queueToggleRect = new Rect(searchRect.xMax + 20f, currentY, 200f, DROPDOWN_HEIGHT);
+            bool newAllowQueueingDisabled = allowQueueingDisabled;
+            Widgets.CheckboxLabeled(queueToggleRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
+            if (newAllowQueueingDisabled != allowQueueingDisabled)
+            {
+                allowQueueingDisabled = newAllowQueueingDisabled;
+            }
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            // Split the remaining area for surgeries and queue
+            var remainingRect = new Rect(rect.x, currentY, rect.width, 
+                rect.height - (currentY - rect.y));
             
-            Rect categoryRect = new Rect(categoryLabelRect.xMax + 5f, currentY, 120f, 25f);
+            var queueWidth = 500f;
+            var surgeryListWidth = remainingRect.width - queueWidth - 10f;
+
+            // Available Surgeries (left side)
+            var surgeryListRect = new Rect(remainingRect.x, remainingRect.y, surgeryListWidth, remainingRect.height);
+            DrawSurgeryList(surgeryListRect);
+
+            // Surgery Queue (right side)
+            var queuedBillsRect = new Rect(surgeryListRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
+            DrawQueuedBills(queuedBillsRect);
+        }
+
+        private void DrawFilters(Rect rect)
+        {
+            float currentY = rect.y;
+
+            // First row: Labels for dropdowns
+            var labelY = currentY;
+            var categoryLabelRect = new Rect(rect.x, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            Widgets.Label(categoryLabelRect, "Category:");
+
+            var modLabelRect = new Rect(categoryLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            Widgets.Label(modLabelRect, "Mod:");
+
+            var targetLabelRect = new Rect(modLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            Widgets.Label(targetLabelRect, "Target:");
+
+            var pawnLabelRect = new Rect(targetLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            Widgets.Label(pawnLabelRect, "Pawn:");
+
+            // Second row: Dropdowns (reduced spacing)
+            currentY += LABEL_HEIGHT + 2f; // Minimal spacing between label and dropdown
+            var dropdownY = currentY;
+
+            // Category dropdown
+            var categoryRect = new Rect(rect.x, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
             string buttonText = selectedCategory == SurgeryCategory.All ? 
                 "CorvusSurgeryUI.All".Translate() : 
                 ("CorvusSurgeryUI.Category." + selectedCategory.ToString()).Translate();
+            
             if (Widgets.ButtonText(categoryRect, buttonText))
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                foreach (SurgeryCategory category in Enum.GetValues(typeof(SurgeryCategory)))
-                {
-                    var count = allPawnSurgeries?.Count(s => category == SurgeryCategory.All || s.Category == category) ?? 0;
-                    string categoryKey = category == SurgeryCategory.All ? "CorvusSurgeryUI.All" : "CorvusSurgeryUI.Category." + category.ToString();
-                    options.Add(new FloatMenuOption($"{categoryKey.Translate()} ({count})", () => {
-                        selectedCategory = category;
-                        ApplyFilters();
-                    }));
-                }
-                Find.WindowStack.Add(new FloatMenu(options));
+                DrawCategoryDropdown(categoryRect);
+            }
+            if (Mouse.IsOver(categoryRect))
+            {
+                TooltipHandler.TipRegion(categoryRect, buttonText);
             }
 
-            // Mod source filter
-            Rect modLabelRect = new Rect(categoryRect.xMax + 15f, currentY, 40f, 20f);
-            Widgets.Label(modLabelRect, "CorvusSurgeryUI.Mod".Translate());
-            
-            Rect modButtonRect = new Rect(modLabelRect.xMax + 5f, currentY, 150f, 25f);
+            // Mod dropdown
+            var modRect = new Rect(categoryRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
             string modButtonText = selectedModFilter == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : selectedModFilter;
-            if (Widgets.ButtonText(modButtonRect, modButtonText))
+            if (Widgets.ButtonText(modRect, modButtonText))
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                foreach (string modName in availableMods)
-                {
-                    int count;
-                    if (modName == "All")
-                    {
-                        count = allPawnSurgeries.Count;
-                    }
-                    else
-                    {
-                        count = allPawnSurgeries.Count(s => (s.Recipe?.modContentPack?.Name ?? "Core") == modName);
-                    }
-                    
-                    string displayName = modName == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : modName;
-                    options.Add(new FloatMenuOption($"{displayName} ({count})", () => {
-                        selectedModFilter = modName;
-                        ApplyFilters();
-                    }));
-                }
-                Find.WindowStack.Add(new FloatMenu(options));
+                DrawModDropdown(modRect);
+            }
+            if (Mouse.IsOver(modRect))
+            {
+                TooltipHandler.TipRegion(modRect, modButtonText);
             }
 
-            // Target Body Part filter
-            Rect targetLabelRect = new Rect(modButtonRect.xMax + 15f, currentY, 50f, 20f);
-            Widgets.Label(targetLabelRect, "CorvusSurgeryUI.Target".Translate());
-            
-            Rect targetButtonRect = new Rect(targetLabelRect.xMax + 5f, currentY, 150f, 25f);
+            // Target dropdown
+            var targetRect = new Rect(modRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
             string targetButtonLabel = selectedTargetPart?.LabelCap ?? "All";
-            if (Widgets.ButtonText(targetButtonRect, targetButtonLabel))
+            if (Widgets.ButtonText(targetRect, targetButtonLabel))
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                options.Add(new FloatMenuOption("All", () => {
-                    selectedTargetPart = null;
-                    ApplyFilters();
-                }));
-                
-                foreach (var target in availableTargets)
-                {
-                    options.Add(new FloatMenuOption(target.LabelCap, () => {
-                        selectedTargetPart = target;
-                        ApplyFilters();
-                    }));
-                }
-                Find.WindowStack.Add(new FloatMenu(options));
+                DrawTargetDropdown(targetRect);
+            }
+            if (Mouse.IsOver(targetRect))
+            {
+                TooltipHandler.TipRegion(targetRect, targetButtonLabel);
             }
 
-            // Pawn selector
-            Rect pawnLabelRect = new Rect(targetButtonRect.xMax + 15f, currentY, 45f, 20f);
-            Widgets.Label(pawnLabelRect, "Pawn:");
-
-            Rect pawnButtonRect = new Rect(pawnLabelRect.xMax + 5f, currentY, 150f, 25f);
-            if (Widgets.ButtonText(pawnButtonRect, pawn.LabelShort))
+            // Pawn dropdown
+            var pawnRect = new Rect(targetRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            if (Widgets.ButtonText(pawnRect, pawn.LabelShort))
             {
-                List<FloatMenuOption> options = new List<FloatMenuOption>();
-                
-                // Get all valid pawns (same logic as the O key shortcut)
-                var allPawns = Find.Maps.SelectMany(m => m.mapPawns.AllPawns)
-                    .Where(p => p.Faction == Faction.OfPlayer && 
-                        (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null)))
-                    .OrderByDescending(p => p.RaceProps.Humanlike) // Humans first, then animals
-                    .ThenBy(p => p.LabelShort);
-
-                foreach (var possiblePawn in allPawns)
-                {
-                    string label = possiblePawn.LabelShort;
-                    if (possiblePawn.RaceProps.Animal)
-                    {
-                        label += $" ({possiblePawn.def.label})";
-                    }
-
-                    options.Add(new FloatMenuOption(label, () => {
-                        if (possiblePawn != pawn)
-                        {
-                            // Switch to the new pawn
-                            pawn = possiblePawn;
-                            thingForMedBills = possiblePawn;  // Update thingForMedBills to the new pawn
-                            // Rebuild surgery list for new pawn
-                            BuildFullSurgeryList();
-                            PopulateAvailableTargets();
-                            // Load any existing bills for the new pawn
-                            LoadQueuedBills();
-                            // Reapply filters to update the view
-                            ApplyFilters();
-                        }
-                    }));
-                }
-
-                if (!options.Any())
-                {
-                    options.Add(new FloatMenuOption("No other valid pawns", null) { Disabled = true });
-                }
-
-                Find.WindowStack.Add(new FloatMenu(options));
+                DrawPawnDropdown(pawnRect);
+            }
+            if (Mouse.IsOver(pawnRect))
+            {
+                TooltipHandler.TipRegion(pawnRect, pawn.LabelShort);
             }
 
-            // Second row - Quick Filters
-            currentY += 30f;
-            var quickFilterY = currentY;
-            var quickFilterX = rect.x + 5f;
-            var buttonHeight = 20f;
-            var buttonSpacing = 5f;
-
-            // Clear All button
-            var clearButtonWidth = 80f;
-            var clearButtonRect = new Rect(quickFilterX, quickFilterY, clearButtonWidth, buttonHeight);
-            if (Widgets.ButtonText(clearButtonRect, "Clear All"))
-            {
-                searchFilter = "";
-                selectedCategory = SurgeryCategory.All;
-                selectedModFilter = "All";
-                availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
-                selectedTargetPart = null;
-                ApplyFilters();
-            }
-            
-            // Availability filter dropdown
-            var availabilityButtonWidth = 140f;
-            var availabilityButtonRect = new Rect(clearButtonRect.xMax + buttonSpacing, quickFilterY, availabilityButtonWidth, buttonHeight);
-            string availabilityButtonText = GetAvailabilityFilterText(availabilityFilter);
-            if (Widgets.ButtonText(availabilityButtonRect, availabilityButtonText))
-            {
-                List<FloatMenuOption> availabilityOptions = new List<FloatMenuOption>();
-                foreach (AvailabilityFilter filter in Enum.GetValues(typeof(AvailabilityFilter)))
-                {
-                    var count = GetFilteredCount(filter);
-                    availabilityOptions.Add(new FloatMenuOption($"{GetAvailabilityFilterText(filter)} ({count})", () => {
-                        availabilityFilter = filter;
-                        ApplyFilters();
-                    }));
-                }
-                Find.WindowStack.Add(new FloatMenu(availabilityOptions));
-            }
-
-            // Implants quick-filter button
-            var implantsButtonWidth = 80f;
-            var implantsButtonRect = new Rect(availabilityButtonRect.xMax + buttonSpacing, quickFilterY, implantsButtonWidth, buttonHeight);
-            if (Widgets.ButtonText(implantsButtonRect, "Implants"))
+            // Quick filter buttons on the right
+            float rightEdge = rect.xMax;
+            var implantsRect = new Rect(rightEdge - 80f, dropdownY, 80f, DROPDOWN_HEIGHT);
+            if (Widgets.ButtonText(implantsRect, "Implants"))
             {
                 selectedCategory = SurgeryCategory.Implants;
                 ApplyFilters();
             }
 
-            // Queue Non Allowed checkbox (third row)
-            currentY += 30f;
-            var checkboxY = currentY;
-            var checkboxRect = new Rect(rect.x + 5f, checkboxY, 200f, 20f);
-            bool newAllowQueueingDisabled = allowQueueingDisabled;
-            Widgets.CheckboxLabeled(checkboxRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
-            if (newAllowQueueingDisabled != allowQueueingDisabled)
+            var availableRect = new Rect(implantsRect.x - 110f, dropdownY, 100f, DROPDOWN_HEIGHT);
+            if (Widgets.ButtonText(availableRect, "Available Only"))
             {
-                allowQueueingDisabled = newAllowQueueingDisabled;
-                // No need to refresh filters, this affects button behavior not filtering
+                availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
+                ApplyFilters();
             }
+
+            var clearRect = new Rect(availableRect.x - 90f, dropdownY, 80f, DROPDOWN_HEIGHT);
+            if (Widgets.ButtonText(clearRect, "Clear All"))
+            {
+                ClearFilters();
+            }
+        }
+
+        private void DrawCategoryDropdown(Rect rect)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            foreach (SurgeryCategory category in Enum.GetValues(typeof(SurgeryCategory)))
+            {
+                var count = allPawnSurgeries?.Count(s => category == SurgeryCategory.All || s.Category == category) ?? 0;
+                string categoryKey = category == SurgeryCategory.All ? "CorvusSurgeryUI.All" : "CorvusSurgeryUI.Category." + category.ToString();
+                options.Add(new FloatMenuOption($"{categoryKey.Translate()} ({count})", () => {
+                    selectedCategory = category;
+                    ApplyFilters();
+                }));
+            }
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void DrawModDropdown(Rect rect)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            foreach (string modName in availableMods)
+            {
+                int count;
+                if (modName == "All")
+                {
+                    count = allPawnSurgeries.Count;
+                }
+                else
+                {
+                    count = allPawnSurgeries.Count(s => (s.Recipe?.modContentPack?.Name ?? "Core") == modName);
+                }
+                
+                string displayName = modName == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : modName;
+                options.Add(new FloatMenuOption($"{displayName} ({count})", () => {
+                    selectedModFilter = modName;
+                    ApplyFilters();
+                }));
+            }
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void DrawTargetDropdown(Rect rect)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            options.Add(new FloatMenuOption("All", () => {
+                selectedTargetPart = null;
+                ApplyFilters();
+            }));
+            
+            foreach (var target in availableTargets)
+            {
+                options.Add(new FloatMenuOption(target.LabelCap, () => {
+                    selectedTargetPart = target;
+                    ApplyFilters();
+                }));
+            }
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void DrawPawnDropdown(Rect rect)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            
+            var allPawns = Find.Maps.SelectMany(m => m.mapPawns.AllPawns)
+                .Where(p => p.Faction == Faction.OfPlayer && 
+                    (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null)))
+                .OrderByDescending(p => p.RaceProps.Humanlike)
+                .ThenBy(p => p.LabelShort);
+
+            foreach (var possiblePawn in allPawns)
+            {
+                string label = possiblePawn.LabelShort;
+                if (possiblePawn.RaceProps.Animal)
+                {
+                    label += $" ({possiblePawn.def.label})";
+                }
+
+                options.Add(new FloatMenuOption(label, () => {
+                    if (possiblePawn != pawn)
+                    {
+                        pawn = possiblePawn;
+                        thingForMedBills = possiblePawn;
+                        BuildFullSurgeryList();
+                        PopulateAvailableTargets();
+                        LoadQueuedBills();
+                        ApplyFilters();
+                    }
+                }));
+            }
+
+            if (!options.Any())
+            {
+                options.Add(new FloatMenuOption("No other valid pawns", null) { Disabled = true });
+            }
+
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        private void ClearFilters()
+        {
+            searchFilter = "";
+            selectedCategory = SurgeryCategory.All;
+            selectedModFilter = "All";
+            availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
+            selectedTargetPart = null;
+            ApplyFilters();
         }
         
         private void PopulateAvailableMods()
@@ -471,24 +557,32 @@ namespace CorvusSurgeryUI
 
         private void DrawSurgeryList(Rect rect)
         {
-            Widgets.DrawBoxSolid(rect, Color.black * 0.1f);
+            // Follow WeaponStats pattern for scroll views
+            GUI.BeginGroup(rect);
             
             var rowHeight = 70f;
             var rowSpacing = 5f;
-            var viewRect = new Rect(0f, 0f, rect.width - 20f, (rowHeight + rowSpacing) * filteredSurgeries.Count);
-            Widgets.BeginScrollView(rect, ref scrollPosition, viewRect);
+            var tableHeight = (rowHeight + rowSpacing) * filteredSurgeries.Count;
+            
+            // Inner rect for scroll content
+            Rect inRect = new Rect(0, 0, rect.width - 20f, tableHeight + 100);
+            
+            // Scroll rect covers the entire group area
+            Rect scrollRect = new Rect(0, 0, rect.width, rect.height);
+            Widgets.BeginScrollView(scrollRect, ref scrollPosition, inRect);
 
             float y = 0f;
             for (int i = 0; i < filteredSurgeries.Count; i++)
             {
                 var surgery = filteredSurgeries[i];
-                var surgeryRect = new Rect(5f, y, viewRect.width - 10f, rowHeight);
+                var surgeryRect = new Rect(5f, y, inRect.width - 10f, rowHeight);
                 
                 DrawSurgeryOption(surgeryRect, surgery, i);
                 y += rowHeight + rowSpacing;
             }
 
             Widgets.EndScrollView();
+            GUI.EndGroup();
         }
 
         private void DrawSurgeryOption(Rect rect, SurgeryOptionCached surgery, int index)
