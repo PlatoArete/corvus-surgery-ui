@@ -332,6 +332,13 @@ namespace CorvusSurgeryUI
                     continue; // Skip missing recipes
                 }
                 
+                // Validate if this surgery is applicable to this specific pawn
+                if (!IsRecipeValidForPawn(recipe, pawn, item))
+                {
+                    skippedCount++;
+                    continue; // Skip invalid surgeries for this pawn
+                }
+                
                 BodyPartRecord bodyPart = null;
                 if (!item.BodyPartLabel.NullOrEmpty())
                 {
@@ -351,8 +358,10 @@ namespace CorvusSurgeryUI
             
             string message = skippedCount == 0 
                 ? $"Loaded preset '{name}': {loadedCount} surgeries."
-                : $"Loaded preset '{name}': {loadedCount} surgeries ({skippedCount} skipped due to missing dependencies).";
-            Messages.Message(message, MessageTypeDefOf.PositiveEvent);
+                : $"Loaded preset '{name}': {loadedCount} surgeries ({skippedCount} skipped - incompatible with this pawn type).";
+            
+            var messageType = skippedCount == 0 ? MessageTypeDefOf.PositiveEvent : MessageTypeDefOf.CautionInput;
+            Messages.Message(message, messageType);
             
             return true;
         }
@@ -468,7 +477,7 @@ namespace CorvusSurgeryUI
             }
         }
 
-        private void ValidatePreset(PersistentSurgeryPreset preset)
+        public void ValidatePreset(PersistentSurgeryPreset preset)
         {
             preset.IsValid = true;
             preset.ValidationErrors.Clear();
@@ -504,6 +513,69 @@ namespace CorvusSurgeryUI
             }
             
             return null;
+        }
+
+        private bool IsRecipeValidForPawn(RecipeDef recipe, Pawn pawn, SurgeryPresetItem item)
+        {
+            try
+            {
+                // Check if recipe is a surgery
+                if (!recipe.IsSurgery) return false;
+                
+                // Check research requirements
+                if ((recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished) || 
+                    (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any(r => !r.IsFinished)))
+                {
+                    return false;
+                }
+                
+                // Check recipe availability report - this is the main check for pawn compatibility
+                var report = recipe.Worker.AvailableReport(pawn);
+                if (!report.Accepted && !report.Reason.NullOrEmpty()) 
+                {
+                    return false;
+                }
+                
+                // For targeted surgeries, check if it's available on the specific body part
+                if (recipe.targetsBodyPart)
+                {
+                    BodyPartRecord bodyPart = null;
+                    if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                    }
+                    
+                    if (bodyPart != null)
+                    {
+                        // Check if surgery is available on this specific body part
+                        if (!recipe.AvailableOnNow(pawn, bodyPart))
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        // Body part was specified but not found on this pawn
+                        return false;
+                    }
+                }
+                
+                // For non-targeted surgeries that add hediffs, check if pawn already has the hediff
+                if (!recipe.targetsBodyPart && recipe.addsHediff != null)
+                {
+                    if (pawn.health.hediffSet.HasHediff(recipe.addsHediff))
+                    {
+                        return false; // Already has this hediff
+                    }
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Error validating surgery '{recipe.defName}' for pawn '{pawn.LabelShort}': {ex.Message}");
+                return false; // If there's an error, don't apply the surgery
+            }
         }
 
         private string GetPresetKey(string name, string saveId)
@@ -1067,9 +1139,9 @@ namespace CorvusSurgeryUI
         
         private void DrawPawnGrid(Rect rect, List<Pawn> eligiblePawns)
         {
-            // Calculate grid layout
+            // Calculate grid layout - increased height for preset dropdown
             const float cardWidth = 120f;
-            const float cardHeight = 140f;
+            const float cardHeight = 180f; // Increased from 140f to 180f
             const float spacing = 10f;
             
             int columns = Mathf.FloorToInt((rect.width + spacing) / (cardWidth + spacing));
@@ -1119,6 +1191,191 @@ namespace CorvusSurgeryUI
             
             // Restore the previous thing (not strictly necessary for presets tab, but good practice)
             // thingForMedBills = previousThing; // Actually, let's keep it as the selected pawn for consistency
+        }
+        
+        private void DrawPawnPresetDropdown(Rect rect, Pawn pawn)
+        {
+            // Get current save presets
+            var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+            
+            if (presets.Count == 0)
+            {
+                GUI.color = Color.gray;
+                if (Widgets.ButtonText(rect, "(no presets)"))
+                {
+                    // Do nothing - no presets available
+                }
+                GUI.color = Color.white;
+                return;
+            }
+            
+            // Simple dropdown button
+            if (Widgets.ButtonText(rect, "Select..."))
+            {
+                ShowPawnPresetDropdown(rect, pawn);
+            }
+        }
+        
+        private void ShowPawnPresetDropdown(Rect buttonRect, Pawn pawn)
+        {
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            
+            // Add saved presets
+            var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+            foreach (var kvp in presets)
+            {
+                var name = kvp.Key; // Capture for closure
+                var preset = kvp.Value;
+                string displayName = preset.IsValid 
+                    ? $"{name} ({preset.Items.Count} surgeries)"
+                    : $"❌ {name} ({preset.Items.Count} surgeries - {preset.ValidationErrors.Count} issues)";
+                
+                options.Add(new FloatMenuOption(displayName, () => {
+                    ApplyPresetToPawn(name, pawn);
+                }));
+            }
+            
+            if (presets.Count == 0)
+            {
+                options.Add(new FloatMenuOption("No presets saved", null) { Disabled = true });
+            }
+            
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+        
+        private void ApplyPresetToPawn(string presetName, Pawn pawn)
+        {
+            try
+            {
+                // Use the existing LoadPreset method but modify behavior to append
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (!presets.ContainsKey(presetName))
+                {
+                    Messages.Message("Preset not found.", MessageTypeDefOf.RejectInput);
+                    return;
+                }
+                
+                var preset = presets[presetName];
+                SurgeryPresetManager.Instance.ValidatePreset(preset); // Re-validate before loading
+                
+                // Apply bills to pawn (append, don't clear existing)
+                if (pawn is IBillGiver billGiver && billGiver.BillStack != null)
+                {
+                    int loadedCount = 0;
+                    int skippedCount = 0;
+                    
+                    foreach (var item in preset.Items)
+                    {
+                        var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                        if (recipe == null)
+                        {
+                            skippedCount++;
+                            continue; // Skip missing recipes
+                        }
+                        
+                        // Validate if this surgery is applicable to this specific pawn
+                        if (!IsSurgeryValidForPawn(recipe, pawn, item))
+                        {
+                            skippedCount++;
+                            continue; // Skip invalid surgeries for this pawn
+                        }
+                        
+                        BodyPartRecord bodyPart = null;
+                        if (!item.BodyPartLabel.NullOrEmpty())
+                        {
+                            bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                        }
+                        
+                        // Create and add bill (append to existing bills)
+                        var bill = new Bill_Medical(recipe, null);
+                        bill.Part = bodyPart;
+                        bill.suspended = item.IsSuspended;
+                        billGiver.BillStack.AddBill(bill);
+                        loadedCount++;
+                    }
+                    
+                    string message = skippedCount == 0 
+                        ? $"Applied preset '{presetName}' to {pawn.LabelShort}: {loadedCount} surgeries added."
+                        : $"Applied preset '{presetName}' to {pawn.LabelShort}: {loadedCount} surgeries added ({skippedCount} skipped - incompatible with this pawn type).";
+                    
+                    var messageType = skippedCount == 0 ? MessageTypeDefOf.PositiveEvent : MessageTypeDefOf.CautionInput;
+                    Messages.Message(message, messageType);
+                    
+                    // Refresh the bills display if this pawn is currently selected
+                    if (selectedPresetsPawn == pawn)
+                    {
+                        UpdateQueuedBills(pawn);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error applying preset to pawn: {ex}");
+                Messages.Message("Error applying preset to pawn.", MessageTypeDefOf.RejectInput);
+            }
+        }
+        
+        private bool IsSurgeryValidForPawn(RecipeDef recipe, Pawn pawn, SurgeryPresetItem item)
+        {
+            try
+            {
+                // Check if recipe is a surgery
+                if (!recipe.IsSurgery) return false;
+                
+                // Check research requirements
+                if ((recipe.researchPrerequisite != null && !recipe.researchPrerequisite.IsFinished) || 
+                    (recipe.researchPrerequisites != null && recipe.researchPrerequisites.Any(r => !r.IsFinished)))
+                {
+                    return false;
+                }
+                
+                // Check recipe availability report - this is the main check for pawn compatibility
+                var report = recipe.Worker.AvailableReport(pawn);
+                if (!report.Accepted && !report.Reason.NullOrEmpty()) 
+                {
+                    return false;
+                }
+                
+                // For targeted surgeries, check if it's available on the specific body part
+                if (recipe.targetsBodyPart)
+                {
+                    BodyPartRecord bodyPart = null;
+                    if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                    }
+                    
+                    if (bodyPart != null)
+                    {
+                        // Check if surgery is available on this specific body part
+                        if (!recipe.AvailableOnNow(pawn, bodyPart))
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!item.BodyPartLabel.NullOrEmpty())
+                    {
+                        // Body part was specified but not found on this pawn
+                        return false;
+                    }
+                }
+                
+                // For non-targeted surgeries that add hediffs, check if pawn already has the hediff
+                if (!recipe.targetsBodyPart && recipe.addsHediff != null)
+                {
+                    if (pawn.health.hediffSet.HasHediff(recipe.addsHediff))
+                    {
+                        return false; // Already has this hediff
+                    }
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Error validating surgery '{recipe.defName}' for pawn '{pawn.LabelShort}': {ex.Message}");
+                return false; // If there's an error, don't apply the surgery
+            }
         }
         
         private bool CanHaveSurgery(Pawn pawn)
@@ -1208,12 +1465,23 @@ namespace CorvusSurgeryUI
             string location = pawn.Map?.Parent?.Label ?? "Unknown";
             Widgets.Label(locationRect, location.Truncate(locationRect.width));
             
+            // Preset dropdown
+            var presetLabelRect = new Rect(cardRect.x + 2f, locationRect.yMax + 2f, cardRect.width - 4f, 12f);
+            GUI.color = Color.gray;
+            Text.Font = GameFont.Tiny;
+            Widgets.Label(presetLabelRect, "Preset:");
+            GUI.color = Color.white;
+            
+            var presetDropdownRect = new Rect(cardRect.x + 2f, presetLabelRect.yMax, cardRect.width - 4f, 20f);
+            DrawPawnPresetDropdown(presetDropdownRect, pawn);
+            
             // Reset text settings to defaults
             Text.Anchor = TextAnchor.UpperLeft;
             Text.Font = GameFont.Small;
             
-            // Click handling - select pawn for presets tab
-            if (Widgets.ButtonInvisible(cardRect))
+            // Click handling - select pawn for presets tab (but not over the dropdown)
+            var clickableRect = new Rect(cardRect.x, cardRect.y, cardRect.width, presetLabelRect.y - cardRect.y);
+            if (Widgets.ButtonInvisible(clickableRect))
             {
                 selectedPresetsPawn = pawn;
             }
