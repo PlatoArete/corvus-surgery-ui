@@ -1193,19 +1193,8 @@ namespace CorvusSurgeryUI
             }
             currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
 
-            // Search and Queue Non Allowed controls (same as Overview tab)
-            var searchLabelRect = new Rect(rect.x, currentY + 2f, 50f, DROPDOWN_HEIGHT);
-            Widgets.Label(searchLabelRect, "Search:");
-            
-            var searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 200f, DROPDOWN_HEIGHT);
-            string newFilter = Widgets.TextField(searchRect, searchFilter);
-            if (newFilter != searchFilter)
-            {
-                searchFilter = newFilter;
-                ApplyFilters();
-            }
-
-            var queueToggleRect = new Rect(searchRect.xMax + 20f, currentY, 200f, DROPDOWN_HEIGHT);
+            // Queue Non Allowed control
+            var queueToggleRect = new Rect(rect.x, currentY, 200f, DROPDOWN_HEIGHT);
             bool newAllowQueueingDisabled = allowQueueingDisabled;
             Widgets.CheckboxLabeled(queueToggleRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
             if (newAllowQueueingDisabled != allowQueueingDisabled)
@@ -1381,10 +1370,26 @@ namespace CorvusSurgeryUI
                     // Fix missing label issue
                     var surgeryLabel = !string.IsNullOrEmpty(surgery.Label) ? surgery.Label : "Unknown Surgery";
                     
-                    var option = new FloatMenuOption($"  {surgeryLabel}", () => {
-                        QueueSurgeryFromBodyPart(surgery, clickedBodyPart);
-                        showFloatingDropdown = false;
-                    });
+                    // Determine action based on availability and allowQueueingDisabled setting
+                    System.Action surgeryAction;
+                    if (!surgery.IsAvailable && allowQueueingDisabled)
+                    {
+                        // Use force queue action for disabled surgeries when Queue Non Allowed is checked
+                        surgeryAction = () => {
+                            surgery.ForceQueueAction?.Invoke();
+                            showFloatingDropdown = false;
+                        };
+                    }
+                    else
+                    {
+                        // Use regular queue action
+                        surgeryAction = () => {
+                            QueueSurgeryFromBodyPart(surgery, clickedBodyPart);
+                            showFloatingDropdown = false;
+                        };
+                    }
+                    
+                    var option = new FloatMenuOption($"  {surgeryLabel}", surgeryAction);
                     
                     // Add tooltip if surgery has description
                     if (!surgery.Description.NullOrEmpty())
@@ -1392,11 +1397,16 @@ namespace CorvusSurgeryUI
                         option.tooltip = surgery.Description;
                     }
                     
-                    // Disable if surgery is not available
-                    if (!surgery.IsAvailable)
+                    // Only disable if surgery is not available AND allowQueueingDisabled is false
+                    if (!surgery.IsAvailable && !allowQueueingDisabled)
                     {
                         option.Disabled = true;
                         option.tooltip = surgery.Requirements ?? "Surgery not available";
+                    }
+                    else if (!surgery.IsAvailable && allowQueueingDisabled)
+                    {
+                        // Add indication that this will be force-queued
+                        option.tooltip = (surgery.Requirements ?? "Surgery not available") + "\n\n(Will be force-queued and suspended)";
                     }
                     
                     options.Add(option);
