@@ -6,9 +6,512 @@ using RimWorld;
 using UnityEngine;
 using Verse;
 using System.Reflection;
+using System.IO;
+using Newtonsoft.Json;
 
 namespace CorvusSurgeryUI
 {
+    // New persistent preset system
+    public class PersistentSurgeryPreset
+    {
+        public string Name { get; set; }
+        public string SaveIdentifier { get; set; }
+        public string SaveDisplayName { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public List<SurgeryPresetItem> Items { get; set; }
+        public bool IsValid { get; set; } = true;
+        public List<string> ValidationErrors { get; set; } = new List<string>();
+        
+        public PersistentSurgeryPreset()
+        {
+            Items = new List<SurgeryPresetItem>();
+            CreatedAt = DateTime.Now;
+        }
+    }
+
+    public class SurgeryPresetManager
+    {
+        private static SurgeryPresetManager instance;
+        private static readonly string presetsFolder = Path.Combine(GenFilePaths.ConfigFolderPath, "CorvusSurgeryUI", "Presets");
+        private static readonly string presetsFile = Path.Combine(presetsFolder, "SurgeryPresets.json");
+        
+        private Dictionary<string, PersistentSurgeryPreset> allPresets = new Dictionary<string, PersistentSurgeryPreset>();
+        private Dictionary<string, PersistentSurgeryPreset> currentSavePresets = new Dictionary<string, PersistentSurgeryPreset>();
+        private string currentSaveId = "";
+        private bool presetsLoaded = false;
+
+        public static SurgeryPresetManager Instance
+        {
+            get
+            {
+                if (instance == null)
+                {
+                    instance = new SurgeryPresetManager();
+                }
+                return instance;
+            }
+        }
+
+        private SurgeryPresetManager()
+        {
+            EnsureDirectoryExists();
+        }
+
+        private void EnsureDirectoryExists()
+        {
+            try
+            {
+                if (!Directory.Exists(presetsFolder))
+                {
+                    Directory.CreateDirectory(presetsFolder);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to create presets directory: {ex}");
+            }
+        }
+
+        public void LoadPresets()
+        {
+            if (presetsLoaded) return;
+            
+            try
+            {
+                if (File.Exists(presetsFile))
+                {
+                    var json = File.ReadAllText(presetsFile);
+                    var presetList = JsonConvert.DeserializeObject<List<PersistentSurgeryPreset>>(json) ?? new List<PersistentSurgeryPreset>();
+                    
+                    allPresets.Clear();
+                    foreach (var preset in presetList)
+                    {
+                        allPresets[GetPresetKey(preset.Name, preset.SaveIdentifier)] = preset;
+                    }
+                    
+                    Log.Message($"Corvus Surgery UI: Loaded {allPresets.Count} presets from disk");
+                }
+                else
+                {
+                    allPresets.Clear();
+                }
+                
+                presetsLoaded = true;
+                UpdateCurrentSavePresets();
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to load presets: {ex}");
+                allPresets.Clear();
+                presetsLoaded = true;
+            }
+        }
+
+        public void SavePresets()
+        {
+            try
+            {
+                var presetList = allPresets.Values.ToList();
+                var json = JsonConvert.SerializeObject(presetList, Formatting.Indented);
+                File.WriteAllText(presetsFile, json);
+                Log.Message($"Corvus Surgery UI: Saved {presetList.Count} presets to disk");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to save presets: {ex}");
+            }
+        }
+
+        public string GetCurrentSaveIdentifier()
+        {
+            try
+            {
+                if (Current.Game?.World?.info != null)
+                {
+                    var worldInfo = Current.Game.World.info;
+                    // Create a unique identifier using world name and seed
+                    return $"{worldInfo.name}_{worldInfo.seedString}";
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Could not get world info for save identifier: {ex}");
+            }
+            
+            // Fallback identifier
+            return "unknown_save";
+        }
+
+        public string GetCurrentSaveDisplayName()
+        {
+            try
+            {
+                if (Current.Game?.World?.info != null)
+                {
+                    return Current.Game.World.info.name;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Corvus Surgery UI: Could not get world name: {ex}");
+            }
+            
+            return "Unknown Save";
+        }
+
+        private void UpdateCurrentSavePresets()
+        {
+            currentSaveId = GetCurrentSaveIdentifier();
+            currentSavePresets.Clear();
+            
+            foreach (var kvp in allPresets)
+            {
+                if (kvp.Value.SaveIdentifier == currentSaveId)
+                {
+                    currentSavePresets[kvp.Value.Name] = kvp.Value;
+                }
+            }
+            
+            Log.Message($"Corvus Surgery UI: Loaded {currentSavePresets.Count} presets for current save");
+        }
+
+        public void RefreshCurrentSave()
+        {
+            var newSaveId = GetCurrentSaveIdentifier();
+            if (newSaveId != currentSaveId)
+            {
+                UpdateCurrentSavePresets();
+            }
+        }
+
+        public Dictionary<string, PersistentSurgeryPreset> GetCurrentSavePresets()
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            return new Dictionary<string, PersistentSurgeryPreset>(currentSavePresets);
+        }
+
+        public Dictionary<string, List<PersistentSurgeryPreset>> GetPresetsBySave()
+        {
+            if (!presetsLoaded) LoadPresets();
+            
+            var result = new Dictionary<string, List<PersistentSurgeryPreset>>();
+            foreach (var preset in allPresets.Values)
+            {
+                if (!result.ContainsKey(preset.SaveIdentifier))
+                {
+                    result[preset.SaveIdentifier] = new List<PersistentSurgeryPreset>();
+                }
+                result[preset.SaveIdentifier].Add(preset);
+            }
+            
+            return result;
+        }
+
+        public void SavePreset(string name, List<SurgeryPresetItem> items, Action onConfirm = null)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            var newPreset = new PersistentSurgeryPreset
+            {
+                Name = name,
+                SaveIdentifier = currentSaveId,
+                SaveDisplayName = GetCurrentSaveDisplayName(),
+                Items = new List<SurgeryPresetItem>(items),
+                CreatedAt = DateTime.Now
+            };
+            
+            // Check for global duplicates (same name + content)
+            var existingDuplicate = FindGlobalDuplicate(newPreset);
+            if (existingDuplicate != null)
+            {
+                // Show confirmation dialog
+                Find.WindowStack.Add(new Dialog_OverwriteConfirmation(
+                    name, 
+                    existingDuplicate.SaveDisplayName,
+                    () => {
+                        // User confirmed overwrite
+                        SavePresetInternal(newPreset);
+                        onConfirm?.Invoke();
+                    },
+                    onConfirm // User cancelled
+                ));
+                return;
+            }
+            
+            // No duplicate found, save directly
+            SavePresetInternal(newPreset);
+            onConfirm?.Invoke();
+        }
+        
+        private void SavePresetInternal(PersistentSurgeryPreset preset)
+        {
+            ValidatePreset(preset);
+            
+            var key = GetPresetKey(preset.Name, preset.SaveIdentifier);
+            allPresets[key] = preset;
+            currentSavePresets[preset.Name] = preset;
+            
+            SavePresets();
+            
+            string message = preset.IsValid 
+                ? $"Preset '{preset.Name}' saved globally (tagged for this save) with {preset.Items.Count} surgeries."
+                : $"Preset '{preset.Name}' saved with warnings - some surgeries may be invalid.";
+            Messages.Message(message, MessageTypeDefOf.PositiveEvent);
+        }
+        
+        private PersistentSurgeryPreset FindGlobalDuplicate(PersistentSurgeryPreset newPreset)
+        {
+            foreach (var existingPreset in allPresets.Values)
+            {
+                if (existingPreset.Name == newPreset.Name && 
+                    ArePresetItemsEqual(existingPreset.Items, newPreset.Items))
+                {
+                    return existingPreset;
+                }
+            }
+            return null;
+        }
+        
+        private bool ArePresetItemsEqual(List<SurgeryPresetItem> items1, List<SurgeryPresetItem> items2)
+        {
+            if (items1.Count != items2.Count) return false;
+            
+            // Sort both lists for comparison (by recipe name then body part)
+            var sorted1 = items1.OrderBy(i => i.RecipeDefName).ThenBy(i => i.BodyPartLabel).ToList();
+            var sorted2 = items2.OrderBy(i => i.RecipeDefName).ThenBy(i => i.BodyPartLabel).ToList();
+            
+            for (int i = 0; i < sorted1.Count; i++)
+            {
+                if (sorted1[i].RecipeDefName != sorted2[i].RecipeDefName ||
+                    sorted1[i].BodyPartLabel != sorted2[i].BodyPartLabel ||
+                    sorted1[i].IsSuspended != sorted2[i].IsSuspended)
+                {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
+        public bool LoadPreset(string name, Pawn pawn, Thing thingForMedBills)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            if (!currentSavePresets.ContainsKey(name))
+            {
+                Messages.Message("Preset not found.", MessageTypeDefOf.RejectInput);
+                return false;
+            }
+            
+            var preset = currentSavePresets[name];
+            ValidatePreset(preset); // Re-validate before loading
+            
+            // Clear current bills
+            if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
+            {
+                var billsToRemove = billGiver.BillStack.Bills.OfType<Bill_Medical>().ToList();
+                foreach (var bill in billsToRemove)
+                {
+                    billGiver.BillStack.Delete(bill);
+                }
+            }
+            
+            // Load valid preset items (skip invalid ones)
+            int loadedCount = 0;
+            int skippedCount = 0;
+            
+            foreach (var item in preset.Items)
+            {
+                var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                if (recipe == null)
+                {
+                    skippedCount++;
+                    continue; // Skip missing recipes
+                }
+                
+                BodyPartRecord bodyPart = null;
+                if (!item.BodyPartLabel.NullOrEmpty())
+                {
+                    bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                }
+                
+                // Create and add bill
+                if (thingForMedBills is IBillGiver billGiver2 && billGiver2.BillStack != null)
+                {
+                    var bill = new Bill_Medical(recipe, null);
+                    bill.Part = bodyPart;
+                    bill.suspended = item.IsSuspended;
+                    billGiver2.BillStack.AddBill(bill);
+                    loadedCount++;
+                }
+            }
+            
+            string message = skippedCount == 0 
+                ? $"Loaded preset '{name}': {loadedCount} surgeries."
+                : $"Loaded preset '{name}': {loadedCount} surgeries ({skippedCount} skipped due to missing dependencies).";
+            Messages.Message(message, MessageTypeDefOf.PositiveEvent);
+            
+            return true;
+        }
+
+        public void DeletePreset(string name)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            if (currentSavePresets.ContainsKey(name))
+            {
+                var key = GetPresetKey(name, currentSaveId);
+                allPresets.Remove(key);
+                currentSavePresets.Remove(name);
+                SavePresets();
+                Messages.Message($"Preset '{name}' deleted.", MessageTypeDefOf.PositiveEvent);
+            }
+        }
+
+        public void ImportPresetFromOtherSave(string presetName, string sourceSaveId)
+        {
+            if (!presetsLoaded) LoadPresets();
+            
+            var sourceKey = GetPresetKey(presetName, sourceSaveId);
+            if (allPresets.ContainsKey(sourceKey))
+            {
+                var sourcePreset = allPresets[sourceKey];
+                var newPreset = new PersistentSurgeryPreset
+                {
+                    Name = presetName,
+                    SaveIdentifier = GetCurrentSaveIdentifier(),
+                    SaveDisplayName = GetCurrentSaveDisplayName(),
+                    Items = new List<SurgeryPresetItem>(sourcePreset.Items),
+                    CreatedAt = DateTime.Now
+                };
+                
+                ValidatePreset(newPreset);
+                
+                var newKey = GetPresetKey(presetName, newPreset.SaveIdentifier);
+                allPresets[newKey] = newPreset;
+                currentSavePresets[presetName] = newPreset;
+                
+                SavePresets();
+                Messages.Message($"Imported preset '{presetName}' from {sourcePreset.SaveDisplayName}.", MessageTypeDefOf.PositiveEvent);
+            }
+        }
+
+        public void ExportPreset(string presetName, string filePath)
+        {
+            if (!presetsLoaded) LoadPresets();
+            RefreshCurrentSave();
+            
+            if (currentSavePresets.ContainsKey(presetName))
+            {
+                try
+                {
+                    var preset = currentSavePresets[presetName];
+                    var exportData = new
+                    {
+                        PresetName = preset.Name,
+                        CreatedAt = preset.CreatedAt,
+                        OriginalSave = preset.SaveDisplayName,
+                        Items = preset.Items
+                    };
+                    
+                    var json = JsonConvert.SerializeObject(exportData, Formatting.Indented);
+                    File.WriteAllText(filePath, json);
+                    Messages.Message($"Preset '{presetName}' exported to {filePath}.", MessageTypeDefOf.PositiveEvent);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Corvus Surgery UI: Failed to export preset: {ex}");
+                    Messages.Message("Failed to export preset.", MessageTypeDefOf.RejectInput);
+                }
+            }
+        }
+
+        public void ImportPreset(string filePath)
+        {
+            try
+            {
+                var json = File.ReadAllText(filePath);
+                var importData = JsonConvert.DeserializeAnonymousType(json, new
+                {
+                    PresetName = "",
+                    CreatedAt = DateTime.Now,
+                    OriginalSave = "",
+                    Items = new List<SurgeryPresetItem>()
+                });
+                
+                var preset = new PersistentSurgeryPreset
+                {
+                    Name = importData.PresetName,
+                    SaveIdentifier = GetCurrentSaveIdentifier(),
+                    SaveDisplayName = GetCurrentSaveDisplayName(),
+                    Items = importData.Items,
+                    CreatedAt = DateTime.Now
+                };
+                
+                ValidatePreset(preset);
+                
+                var key = GetPresetKey(preset.Name, preset.SaveIdentifier);
+                allPresets[key] = preset;
+                currentSavePresets[preset.Name] = preset;
+                
+                SavePresets();
+                Messages.Message($"Imported preset '{preset.Name}' from {importData.OriginalSave}.", MessageTypeDefOf.PositiveEvent);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Failed to import preset: {ex}");
+                Messages.Message("Failed to import preset. Please check file format.", MessageTypeDefOf.RejectInput);
+            }
+        }
+
+        private void ValidatePreset(PersistentSurgeryPreset preset)
+        {
+            preset.IsValid = true;
+            preset.ValidationErrors.Clear();
+            
+            foreach (var item in preset.Items)
+            {
+                var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                if (recipe == null)
+                {
+                    preset.IsValid = false;
+                    preset.ValidationErrors.Add($"Missing recipe: {item.RecipeDefName}");
+                }
+            }
+        }
+
+        private BodyPartRecord FindBodyPart(string bodyPartLabel, Pawn pawn)
+        {
+            if (bodyPartLabel.NullOrEmpty()) return null;
+            
+            var parts = bodyPartLabel.Split('|');
+            if (parts.Length != 2) return null;
+            
+            var defName = parts[0];
+            if (!int.TryParse(parts[1], out int index)) return null;
+            
+            // Find the body part by def name and index
+            foreach (var part in pawn.health.hediffSet.GetNotMissingParts())
+            {
+                if (part.def.defName == defName && part.Index == index)
+                {
+                    return part;
+                }
+            }
+            
+            return null;
+        }
+
+        private string GetPresetKey(string name, string saveId)
+        {
+            return $"{saveId}:{name}";
+        }
+    }
+
     public class CorvusSurgeryUISettings : ModSettings
     {
         public int lastSelectedTabIndex = 0;
@@ -204,7 +707,6 @@ namespace CorvusSurgeryUI
         private Vector2 billScrollPosition = Vector2.zero;
 
         // Surgery presets
-        private static Dictionary<string, List<SurgeryPresetItem>> surgeryPresets = new Dictionary<string, List<SurgeryPresetItem>>();
         private string selectedPreset = "(none)";
 
         // Performance optimization - static caches
@@ -1200,9 +1702,21 @@ namespace CorvusSurgeryUI
                 ShowSavePresetDialog();
             }
             
-            // Preset dropdown
+            // Preset dropdown (with validation indicator)
             var dropdownRect = new Rect(saveButtonRect.xMax + 10f, rect.y, 150f, rect.height);
-            if (Widgets.ButtonText(dropdownRect, selectedPreset))
+            string dropdownText = selectedPreset;
+            
+            // Add red X for invalid presets
+            if (selectedPreset != "(none)")
+            {
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (presets.ContainsKey(selectedPreset) && !presets[selectedPreset].IsValid)
+                {
+                    dropdownText = "❌ " + selectedPreset;
+                }
+            }
+            
+            if (Widgets.ButtonText(dropdownRect, dropdownText))
             {
                 ShowPresetDropdown();
             }
@@ -1214,6 +1728,23 @@ namespace CorvusSurgeryUI
                 if (Widgets.ButtonText(loadButtonRect, "Load"))
                 {
                     LoadPreset(selectedPreset);
+                }
+            }
+            
+            // Single Import button
+            var importButtonRect = new Rect(dropdownRect.xMax + (selectedPreset != "(none)" ? 95f : 15f), rect.y, 80f, rect.height);
+            if (Widgets.ButtonText(importButtonRect, "Import"))
+            {
+                ShowConsolidatedImportDialog();
+            }
+            
+            // Export button (only if a preset is selected)
+            if (selectedPreset != "(none)")
+            {
+                var exportButtonRect = new Rect(importButtonRect.xMax + 10f, rect.y, 60f, rect.height);
+                if (Widgets.ButtonText(exportButtonRect, "Export"))
+                {
+                    ShowExportDialog();
                 }
             }
         }
@@ -1617,16 +2148,22 @@ namespace CorvusSurgeryUI
                 selectedPreset = "(none)";
             }));
             
-            // Add saved presets
-            foreach (var presetName in surgeryPresets.Keys)
+            // Add saved presets with validation indicators
+            var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+            foreach (var kvp in presets)
             {
-                var name = presetName; // Capture for closure
-                options.Add(new FloatMenuOption($"{name} ({surgeryPresets[name].Count} surgeries)", () => {
+                var name = kvp.Key; // Capture for closure
+                var preset = kvp.Value;
+                string displayName = preset.IsValid 
+                    ? $"{name} ({preset.Items.Count} surgeries)"
+                    : $"❌ {name} ({preset.Items.Count} surgeries - {preset.ValidationErrors.Count} issues)";
+                
+                options.Add(new FloatMenuOption(displayName, () => {
                     selectedPreset = name;
                 }));
             }
             
-            if (surgeryPresets.Count == 0)
+            if (presets.Count == 0)
             {
                 options.Add(new FloatMenuOption("No presets saved", null) { Disabled = true });
             }
@@ -1645,10 +2182,11 @@ namespace CorvusSurgeryUI
                     presetItems.Add(new SurgeryPresetItem(bill.recipe, bill.Part, bill.suspended));
                 }
                 
-                surgeryPresets[name] = presetItems;
-                Messages.Message($"Preset '{name}' saved with {presetItems.Count} surgeries.", MessageTypeDefOf.PositiveEvent);
+                SurgeryPresetManager.Instance.SavePreset(name, presetItems, () => {
+                    selectedPreset = name;
+                });
                 
-                Log.Message($"Corvus Surgery UI: Saved preset '{name}' with {presetItems.Count} surgeries");
+                Log.Message($"Corvus Surgery UI: Saved preset '{name}' with {presetItems.Count} surgeries.");
             }
             catch (Exception ex)
             {
@@ -1661,52 +2199,15 @@ namespace CorvusSurgeryUI
         {
             try
             {
-                if (!surgeryPresets.ContainsKey(name))
+                if (!SurgeryPresetManager.Instance.LoadPreset(name, pawn, thingForMedBills))
                 {
-                    Messages.Message("Preset not found.", MessageTypeDefOf.RejectInput);
                     return;
                 }
                 
-                // Clear current bills
-                if (thingForMedBills is IBillGiver billGiver && billGiver.BillStack != null)
-                {
-                    var billsToRemove = billGiver.BillStack.Bills.OfType<Bill_Medical>().ToList();
-                    foreach (var bill in billsToRemove)
-                    {
-                        billGiver.BillStack.Delete(bill);
-                    }
-                }
-                
-                // Load preset bills
-                var presetItems = surgeryPresets[name];
-                int loadedCount = 0;
-                
-                foreach (var item in presetItems)
-                {
-                    var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
-                    if (recipe == null) continue;
-                    
-                    BodyPartRecord bodyPart = null;
-                    if (!item.BodyPartLabel.NullOrEmpty())
-                    {
-                        bodyPart = FindBodyPart(item.BodyPartLabel);
-                    }
-                    
-                    // Create and add bill
-                    if (thingForMedBills is IBillGiver billGiver2 && billGiver2.BillStack != null)
-                    {
-                        var bill = new Bill_Medical(recipe, null);
-                        bill.Part = bodyPart;
-                        bill.suspended = item.IsSuspended;
-                        billGiver2.BillStack.AddBill(bill);
-                        loadedCount++;
-                    }
-                }
-                
                 LoadQueuedBills(); // Refresh our local list
-                Messages.Message($"Loaded preset '{name}': {loadedCount} surgeries.", MessageTypeDefOf.PositiveEvent);
+                Messages.Message($"Loaded preset '{name}': {queuedBills.Count} surgeries.", MessageTypeDefOf.PositiveEvent);
                 
-                Log.Message($"Corvus Surgery UI: Loaded preset '{name}' with {loadedCount} surgeries");
+                Log.Message($"Corvus Surgery UI: Loaded preset '{name}' with {queuedBills.Count} surgeries");
             }
             catch (Exception ex)
             {
@@ -1715,7 +2216,7 @@ namespace CorvusSurgeryUI
             }
         }
 
-        private BodyPartRecord FindBodyPart(string bodyPartLabel)
+        private BodyPartRecord FindBodyPart(string bodyPartLabel, Pawn pawn)
         {
             if (bodyPartLabel.NullOrEmpty()) return null;
             
@@ -1735,6 +2236,28 @@ namespace CorvusSurgeryUI
             }
             
             return null;
+        }
+        
+        private void ShowConsolidatedImportDialog()
+        {
+            Find.WindowStack.Add(new Dialog_ConsolidatedImport());
+        }
+        
+        private void ShowImportFromSavesDialog()
+        {
+            Find.WindowStack.Add(new Dialog_ImportFromSaves());
+        }
+        
+        private void ShowExportDialog()
+        {
+            if (selectedPreset == "(none)") return;
+            
+            Find.WindowStack.Add(new Dialog_ExportPreset(selectedPreset));
+        }
+        
+        private void ShowImportFileDialog()
+        {
+            Find.WindowStack.Add(new Dialog_ImportPresetFile());
         }
     }
 
@@ -1840,6 +2363,327 @@ namespace CorvusSurgeryUI
                     onConfirm?.Invoke(presetName);
                     Close();
                 }
+            }
+        }
+    }
+
+    public class Dialog_ImportFromSaves : Window
+    {
+        private Vector2 scrollPosition = Vector2.zero;
+        private Dictionary<string, List<PersistentSurgeryPreset>> presetsBySave;
+
+        public Dialog_ImportFromSaves()
+        {
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+            presetsBySave = SurgeryPresetManager.Instance.GetPresetsBySave();
+        }
+
+        public override Vector2 InitialSize => new Vector2(600f, 500f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Import Presets from Other Saves");
+            Text.Font = GameFont.Small;
+
+            var currentSaveId = SurgeryPresetManager.Instance.GetCurrentSaveIdentifier();
+            var scrollRect = new Rect(0f, 40f, inRect.width, inRect.height - 80f);
+            var viewRect = new Rect(0f, 0f, scrollRect.width - 20f, CalculateViewHeight());
+
+            Widgets.BeginScrollView(scrollRect, ref scrollPosition, viewRect);
+
+            float y = 0f;
+            foreach (var saveGroup in presetsBySave)
+            {
+                if (saveGroup.Key == currentSaveId) continue; // Skip current save
+
+                var saveName = saveGroup.Value.FirstOrDefault()?.SaveDisplayName ?? "Unknown Save";
+                var headerRect = new Rect(0f, y, viewRect.width, 30f);
+                
+                Text.Font = GameFont.Medium;
+                Widgets.Label(headerRect, $"{saveName} ({saveGroup.Value.Count} presets)");
+                Text.Font = GameFont.Small;
+                y += 35f;
+
+                foreach (var preset in saveGroup.Value)
+                {
+                    var presetRect = new Rect(20f, y, viewRect.width - 40f, 25f);
+                    
+                    string presetLabel = preset.IsValid 
+                        ? $"{preset.Name} ({preset.Items.Count} surgeries)"
+                        : $"❌ {preset.Name} ({preset.Items.Count} surgeries - may have issues)";
+                    
+                    var labelRect = new Rect(presetRect.x, presetRect.y, presetRect.width - 100f, presetRect.height);
+                    Widgets.Label(labelRect, presetLabel);
+                    
+                    var importButtonRect = new Rect(presetRect.xMax - 90f, presetRect.y, 80f, 20f);
+                    if (Widgets.ButtonText(importButtonRect, "Import"))
+                    {
+                        SurgeryPresetManager.Instance.ImportPresetFromOtherSave(preset.Name, saveGroup.Key);
+                        Close();
+                    }
+                    
+                    y += 30f;
+                }
+                
+                y += 10f; // Extra spacing between saves
+            }
+
+            Widgets.EndScrollView();
+
+            // Close button
+            var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
+            if (Widgets.ButtonText(closeButtonRect, "Close"))
+            {
+                Close();
+            }
+        }
+
+        private float CalculateViewHeight()
+        {
+            float height = 0f;
+            var currentSaveId = SurgeryPresetManager.Instance.GetCurrentSaveIdentifier();
+            
+            foreach (var saveGroup in presetsBySave)
+            {
+                if (saveGroup.Key == currentSaveId) continue;
+                height += 35f; // Header
+                height += saveGroup.Value.Count * 30f; // Presets
+                height += 10f; // Spacing
+            }
+            
+            return height;
+        }
+    }
+
+    public class Dialog_ExportPreset : Window
+    {
+        private string presetName;
+        private string filePath = "";
+
+        public Dialog_ExportPreset(string presetName)
+        {
+            this.presetName = presetName;
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+            this.filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), $"{presetName}_preset.json");
+        }
+
+        public override Vector2 InitialSize => new Vector2(500f, 300f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, $"Export Preset: {presetName}");
+            Text.Font = GameFont.Small;
+
+            var labelRect = new Rect(0f, 50f, inRect.width, 25f);
+            Widgets.Label(labelRect, "Export to file:");
+
+            var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
+            filePath = Widgets.TextField(textFieldRect, filePath);
+
+            var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
+            if (Widgets.ButtonText(browseButtonRect, "Browse"))
+            {
+                // Note: RimWorld doesn't have a native file browser, so we'll use a simple path
+                Messages.Message("Tip: Modify the path above or use the default location (Desktop)", MessageTypeDefOf.NeutralEvent);
+            }
+
+            var infoRect = new Rect(0f, 130f, inRect.width, 80f);
+            Widgets.Label(infoRect, "This will export the preset to a JSON file that can be shared with other players. They can import it using the 'Import File' button.");
+
+            // Buttons
+            var buttonWidth = 80f;
+            var buttonHeight = 35f;
+            var spacing = 20f;
+            var totalButtonWidth = (buttonWidth * 2) + spacing;
+            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+
+            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            {
+                Close();
+            }
+
+            var exportRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(exportRect, "Export"))
+            {
+                if (!filePath.NullOrEmpty())
+                {
+                    SurgeryPresetManager.Instance.ExportPreset(presetName, filePath);
+                    Close();
+                }
+            }
+        }
+    }
+
+    public class Dialog_ImportPresetFile : Window
+    {
+        private string filePath = "";
+
+        public Dialog_ImportPresetFile()
+        {
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+            this.filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "preset.json");
+        }
+
+        public override Vector2 InitialSize => new Vector2(500f, 300f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Import Preset from File");
+            Text.Font = GameFont.Small;
+
+            var labelRect = new Rect(0f, 50f, inRect.width, 25f);
+            Widgets.Label(labelRect, "Import from file:");
+
+            var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
+            filePath = Widgets.TextField(textFieldRect, filePath);
+
+            var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
+            if (Widgets.ButtonText(browseButtonRect, "Browse"))
+            {
+                Messages.Message("Tip: Modify the path above to point to your preset JSON file", MessageTypeDefOf.NeutralEvent);
+            }
+
+            var infoRect = new Rect(0f, 130f, inRect.width, 80f);
+            Widgets.Label(infoRect, "Select a JSON preset file exported from this or another player's game. The preset will be imported and tagged for your current save.");
+
+            // Buttons
+            var buttonWidth = 80f;
+            var buttonHeight = 35f;
+            var spacing = 20f;
+            var totalButtonWidth = (buttonWidth * 2) + spacing;
+            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+
+            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            {
+                Close();
+            }
+
+            var importRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(importRect, "Import"))
+            {
+                if (!filePath.NullOrEmpty() && File.Exists(filePath))
+                {
+                    SurgeryPresetManager.Instance.ImportPreset(filePath);
+                    Close();
+                }
+                else
+                {
+                    Messages.Message("File not found. Please check the path.", MessageTypeDefOf.RejectInput);
+                }
+            }
+        }
+    }
+
+    public class Dialog_ConsolidatedImport : Window
+    {
+        public Dialog_ConsolidatedImport()
+        {
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+        }
+
+        public override Vector2 InitialSize => new Vector2(400f, 250f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Import Presets");
+            Text.Font = GameFont.Small;
+
+            var infoRect = new Rect(0f, 40f, inRect.width, 40f);
+            Widgets.Label(infoRect, "Choose import source:");
+
+            // Import from Other Saves button
+            var importSavesRect = new Rect(50f, 90f, inRect.width - 100f, 35f);
+            if (Widgets.ButtonText(importSavesRect, "Import from Other Saves"))
+            {
+                Close();
+                Find.WindowStack.Add(new Dialog_ImportFromSaves());
+            }
+
+            // Import from File button  
+            var importFileRect = new Rect(50f, 135f, inRect.width - 100f, 35f);
+            if (Widgets.ButtonText(importFileRect, "Import from File"))
+            {
+                Close();
+                Find.WindowStack.Add(new Dialog_ImportPresetFile());
+            }
+
+            // Close button
+            var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
+            if (Widgets.ButtonText(closeButtonRect, "Close"))
+            {
+                Close();
+            }
+        }
+    }
+
+    public class Dialog_OverwriteConfirmation : Window
+    {
+        private string presetName;
+        private string existingSaveName;
+        private Action onConfirm;
+        private Action onCancel;
+
+        public Dialog_OverwriteConfirmation(string presetName, string existingSaveName, Action onConfirm, Action onCancel = null)
+        {
+            this.presetName = presetName;
+            this.existingSaveName = existingSaveName;
+            this.onConfirm = onConfirm;
+            this.onCancel = onCancel;
+            this.forcePause = true;
+            this.doCloseX = true;
+            this.absorbInputAroundWindow = true;
+        }
+
+        public override Vector2 InitialSize => new Vector2(450f, 200f);
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
+            Widgets.Label(titleRect, "Preset Already Exists");
+            Text.Font = GameFont.Small;
+
+            var messageRect = new Rect(0f, 40f, inRect.width, 80f);
+            string message = $"A preset named '{presetName}' with the same surgeries already exists in '{existingSaveName}'.\n\nDo you want to overwrite it?";
+            Widgets.Label(messageRect, message);
+
+            // Buttons
+            var buttonWidth = 80f;
+            var buttonHeight = 35f;
+            var spacing = 20f;
+            var totalButtonWidth = (buttonWidth * 2) + spacing;
+            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+
+            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            {
+                onCancel?.Invoke();
+                Close();
+            }
+
+            var overwriteRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
+            if (Widgets.ButtonText(overwriteRect, "Overwrite"))
+            {
+                onConfirm?.Invoke();
+                Close();
             }
         }
     }
