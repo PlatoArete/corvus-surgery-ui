@@ -784,11 +784,11 @@ namespace CorvusSurgeryUI
         // Presets tab scroll position
         private Vector2 presetsScrollPosition = Vector2.zero;
         
-        // Presets tab filters (reset to defaults each session)
+        // Presets tab filters (reset to defaults each session) - default to colonists only
         private bool showColonists = true;
-        private bool showPrisoners = true;
-        private bool showSlaves = true;
-        private bool showAnimals = true;
+        private bool showPrisoners = false;
+        private bool showSlaves = false;
+        private bool showAnimals = false;
         private bool showGuests = false;
         
         // Presets tab selected pawn
@@ -920,12 +920,19 @@ namespace CorvusSurgeryUI
         {
             float currentY = rect.y + 5f;
             
-            // Header
+            // Header with controls on the right
             var eligiblePawns = GetAllEligiblePawns();
             var headerRect = new Rect(rect.x, currentY, rect.width, 30f);
+            
+            // Left side - title
             Text.Font = GameFont.Medium;
-            Widgets.Label(headerRect, $"Surgery Presets - {eligiblePawns.Count} eligible pawns");
+            var titleRect = new Rect(headerRect.x, headerRect.y, headerRect.width * 0.6f, headerRect.height);
+            Widgets.Label(titleRect, $"Surgery Presets - {eligiblePawns.Count} eligible pawns");
             Text.Font = GameFont.Small;
+            
+            // Right side - preset controls
+            DrawPresetsTabControls(new Rect(titleRect.xMax, headerRect.y, headerRect.width - titleRect.width, headerRect.height), eligiblePawns);
+            
             currentY = headerRect.yMax + 5f;
 
             // Filter checkboxes
@@ -938,10 +945,11 @@ namespace CorvusSurgeryUI
             {
                 eligiblePawns = GetAllEligiblePawns();
                 
-                // Update header count
+                // Update header count and controls
                 Text.Font = GameFont.Medium;
-                Widgets.Label(headerRect, $"Surgery Presets - {eligiblePawns.Count} eligible pawns");
+                Widgets.Label(titleRect, $"Surgery Presets - {eligiblePawns.Count} eligible pawns");
                 Text.Font = GameFont.Small;
+                DrawPresetsTabControls(new Rect(titleRect.xMax, headerRect.y, headerRect.width - titleRect.width, headerRect.height), eligiblePawns);
             }
 
             // Ensure we have a selected pawn (default to first)
@@ -1135,6 +1143,155 @@ namespace CorvusSurgeryUI
                      origGuests != showGuests;
             
             return changed;
+        }
+        
+        private void DrawPresetsTabControls(Rect rect, List<Pawn> eligiblePawns)
+        {
+            float rightX = rect.xMax;
+            
+            // Export button (only if a preset is selected)
+            if (selectedPreset != "(none)")
+            {
+                var exportButtonRect = new Rect(rightX - 60f, rect.y, 60f, rect.height);
+                if (Widgets.ButtonText(exportButtonRect, "Export"))
+                {
+                    ShowExportDialog();
+                }
+                rightX = exportButtonRect.x - 10f;
+            }
+            
+            // Import button
+            var importButtonRect = new Rect(rightX - 80f, rect.y, 80f, rect.height);
+            if (Widgets.ButtonText(importButtonRect, "Import"))
+            {
+                ShowConsolidatedImportDialog();
+            }
+            rightX = importButtonRect.x - 10f;
+            
+            // Apply button (only if a preset is selected)
+            if (selectedPreset != "(none)")
+            {
+                var loadButtonRect = new Rect(rightX - 80f, rect.y, 80f, rect.height);
+                if (Widgets.ButtonText(loadButtonRect, "Apply"))
+                {
+                    LoadPresetForAllPawns(selectedPreset, eligiblePawns);
+                }
+                rightX = loadButtonRect.x - 10f;
+            }
+            
+            // Preset dropdown (with validation indicator)
+            var dropdownRect = new Rect(rightX - 150f, rect.y, 150f, rect.height);
+            string dropdownText = selectedPreset;
+            
+            // Add red X for invalid presets
+            if (selectedPreset != "(none)")
+            {
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (presets.ContainsKey(selectedPreset) && !presets[selectedPreset].IsValid)
+                {
+                    dropdownText = "❌ " + selectedPreset;
+                }
+            }
+            
+            if (Widgets.ButtonText(dropdownRect, dropdownText))
+            {
+                ShowPresetDropdown();
+            }
+            rightX = dropdownRect.x - 15f;
+            
+            // Apply label
+            var applyLabelRect = new Rect(rightX - 120f, rect.y, 120f, rect.height);
+            Text.Font = GameFont.Small;
+            Text.Anchor = TextAnchor.MiddleRight;
+            GUI.color = Color.gray;
+            Widgets.Label(applyLabelRect, $"Apply to {eligiblePawns.Count} pawns:");
+            GUI.color = Color.white;
+            Text.Anchor = TextAnchor.UpperLeft;
+        }
+        
+        private void LoadPresetForAllPawns(string presetName, List<Pawn> pawns)
+        {
+            try
+            {
+                var presets = SurgeryPresetManager.Instance.GetCurrentSavePresets();
+                if (!presets.ContainsKey(presetName))
+                {
+                    Messages.Message("Preset not found.", MessageTypeDefOf.RejectInput);
+                    return;
+                }
+                
+                var preset = presets[presetName];
+                SurgeryPresetManager.Instance.ValidatePreset(preset);
+                
+                int totalLoaded = 0;
+                int totalSkipped = 0;
+                int pawnsAffected = 0;
+                
+                foreach (var pawn in pawns)
+                {
+                    if (pawn is IBillGiver billGiver && billGiver.BillStack != null)
+                    {
+                        int pawnLoaded = 0;
+                        int pawnSkipped = 0;
+                        
+                        foreach (var item in preset.Items)
+                        {
+                            var recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(item.RecipeDefName);
+                            if (recipe == null)
+                            {
+                                pawnSkipped++;
+                                continue;
+                            }
+                            
+                            // Validate if this surgery is applicable to this specific pawn
+                            if (!IsSurgeryValidForPawn(recipe, pawn, item))
+                            {
+                                pawnSkipped++;
+                                continue;
+                            }
+                            
+                            BodyPartRecord bodyPart = null;
+                            if (!item.BodyPartLabel.NullOrEmpty())
+                            {
+                                bodyPart = FindBodyPart(item.BodyPartLabel, pawn);
+                            }
+                            
+                            // Create and add bill (append to existing bills)
+                            var bill = new Bill_Medical(recipe, null);
+                            bill.Part = bodyPart;
+                            bill.suspended = item.IsSuspended;
+                            billGiver.BillStack.AddBill(bill);
+                            pawnLoaded++;
+                        }
+                        
+                        if (pawnLoaded > 0)
+                        {
+                            pawnsAffected++;
+                        }
+                        
+                        totalLoaded += pawnLoaded;
+                        totalSkipped += pawnSkipped;
+                    }
+                }
+                
+                string message = totalSkipped == 0 
+                    ? $"Applied preset '{presetName}' to {pawnsAffected} pawns: {totalLoaded} surgeries added."
+                    : $"Applied preset '{presetName}' to {pawnsAffected} pawns: {totalLoaded} surgeries added ({totalSkipped} skipped - incompatible with pawn types).";
+                
+                var messageType = totalSkipped == 0 ? MessageTypeDefOf.PositiveEvent : MessageTypeDefOf.CautionInput;
+                Messages.Message(message, messageType);
+                
+                // Refresh the bills display if the selected pawn was affected
+                if (selectedPresetsPawn != null && pawns.Contains(selectedPresetsPawn))
+                {
+                    UpdateQueuedBills(selectedPresetsPawn);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error applying preset to all pawns: {ex}");
+                Messages.Message("Error applying preset to pawns.", MessageTypeDefOf.RejectInput);
+            }
         }
         
         private void DrawPawnGrid(Rect rect, List<Pawn> eligiblePawns)
@@ -2437,11 +2594,11 @@ namespace CorvusSurgeryUI
                 ShowPresetDropdown();
             }
             
-            // Load button (only if a preset is selected)
+            // Apply button (only if a preset is selected)
             if (selectedPreset != "(none)")
             {
                 var loadButtonRect = new Rect(dropdownRect.xMax + 10f, rect.y, 80f, rect.height);
-                if (Widgets.ButtonText(loadButtonRect, "Load"))
+                if (Widgets.ButtonText(loadButtonRect, "Apply"))
                 {
                     LoadPreset(selectedPreset);
                 }
