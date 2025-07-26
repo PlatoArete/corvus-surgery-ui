@@ -28,7 +28,18 @@
 		<li>erdelf.prisonlabor</li>
 		<!-- Load after any mod that adds medical recipes -->
 	</loadAfter>
-	<description>An advanced, user-friendly interface for managing surgical procedures. This mod provides a powerful "Surgery Planner" to streamline your colony's medical operations, with advanced filtering and full compatibility with other mods.</description>
+	<description>The ultimate surgery management interface for RimWorld! Features a revolutionary 3-tab system: Overview for comprehensive surgery lists, Visual Planner with interactive body diagrams, and Presets for saved surgery templates. 
+
+KEY FEATURES:
+• Interactive SVG Body Diagram - Click body parts for instant surgery options
+• Advanced Filtering - Availability states, categories, mods, body parts
+• Smart Queue Management - Drag/drop reordering, bulk operations, auto-suspension
+• Surgery Presets - Save and load common surgery combinations
+• Enhanced Information - Detailed requirements, implant warnings, mod sources
+• Force Queue System - Queue unavailable surgeries that auto-enable when ready
+• Full Mod Compatibility - Works with any surgery-adding mod
+
+Press 'O' to open the planner instantly! Streamline your medical operations with the most advanced surgery interface on the Rim.</description>
 	<packageId>corvus.surgery.ui</packageId>
 	<url>https://github.com/PlatoArete/corvus-surgery-ui</url>
 </ModMetaData> 

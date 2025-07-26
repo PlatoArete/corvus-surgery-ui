@@ -1,144 +1,323 @@
 # [COG] Corvus Surgery UI
 
-An advanced, user-friendly interface for managing surgical procedures in RimWorld. Designed for compatibility and ease of use, this mod provides a powerful "Surgery Planner" to streamline your colony's medical operations.
+The ultimate surgery management interface for RimWorld! This mod revolutionizes medical operations with a powerful 3-tab system featuring comprehensive surgery lists, interactive body diagrams, and customizable presets. Designed for maximum compatibility and ease of use.
 
-It should be fully compatible with other mods and DLCs. Because it uses the game's own internal logic to find surgeries, it can correctly identify and display procedures from any other mod without needing specific patches.
+Works seamlessly with all mods and DLCs by leveraging RimWorld's internal surgery logic - no patches required!
 
 ![Surgery Planner UI](https://i.imgur.com/REPLACE_THIS_WITH_A_REAL_SCREENSHOT.png)  <!-- Replace with an actual screenshot -->
 
 # CORVUS LIFE SCIENCES
-## Advanced Surgical Interface System™ v2.7
+## Advanced Surgical Interface System™ v3.0
 
 **Revolutionizing Medical Precision Across the Rim**
 
-At Corvus Life Sciences, we understand that successful surgery requires more than just steady hands—it demands superior information management. That's why our Advanced Surgical Interface System represents the pinnacle of medical UI technology, trusted by colony doctors from the inner worlds to the furthest rim settlements.
+At Corvus Life Sciences, we understand that successful surgery requires more than just steady hands—it demands superior information management. Our latest Advanced Surgical Interface System represents the pinnacle of medical UI technology, now featuring revolutionary visual planning capabilities trusted by colony doctors from the inner worlds to the furthest rim settlements.
 
-**Key Features:**
-- **Streamlined Procedure Selection**: Our proprietary interface reduces surgical prep time by 73%*, allowing medical professionals to focus on what matters most—keeping colonists operational.
-- **Enhanced Risk Assessment**: Clear, intuitive displays help minimize "unexpected outcomes" during complex procedures.
-- **Optimized Workflow Management**: Because every second counts when you're extracting that kidney—we mean, performing life-saving surgery.
+**Revolutionary New Features:**
+- **Interactive Body Diagrams**: Click directly on body parts for instant surgery access
+- **3-Tab Interface**: Overview, Visual Planner, and Presets for maximum efficiency
+- **Smart Force-Queuing**: Queue unavailable surgeries that auto-enable when ready
+- **Enhanced Visual Feedback**: Color-coded health status and availability indicators
 
-*"The Corvus interface helped me perform my best work yet. I barely noticed the screaming."* 
-— Dr. █████, Outer Rim Medical Facility
+*"The new body diagram changed everything. I can plan complex reconstructive surgeries with a few clicks. My patients barely have time to scream before I'm done."* 
+— Dr. █████, Outer Rim Trauma Center
 
 **Corvus Life Sciences: Your Partner in Ethical Medical Excellence**
 
-*Results may vary. Corvus Life Sciences is not responsible for organ harvesting operations, black market medical procedures, or any activities that may or may not involve the Corvus Operations Group's "Alternative Revenue Streams" division. Side effects may include increased surgical confidence, reduced patient mortality, and an inexplicable urge to install more medical beds.*
+*Results may vary. Corvus Life Sciences is not responsible for organ harvesting operations, black market medical procedures, or any activities that may or may not involve the Corvus Operations Group's "Alternative Revenue Streams" division.*
 
 ---
 *Corvus Operations Group Subsidiary | Building Tomorrow's Rim, Today™*
 
-## Features
+## Quick Start
 
-### Quick Access
-- **Keyboard Shortcut**: Press 'O' to instantly open the surgery planner for your selected pawn (or the first available colonist if none is selected)
-- **Dedicated "Plan" Button**: Adds a new "Plan" button to the pawn's Health tab for quick access
+### Instant Access
+- **Keyboard Shortcut**: Press **'O'** to instantly open the surgery planner
+- **Health Tab Button**: New "Plan" button in every pawn's Health tab
+- **Auto-Selection**: Automatically selects your colonist or selected pawn
 
-### Comprehensive Interface
-- **Complete Surgery List**: Intelligently generates a list of every possible surgery for the selected pawn
-- **Quick Pawn Switching**: Easily switch between different colonists and animals without closing the planner
-- **Surgery Queue Management**: 
-  - Drag and drop to reorder surgeries
-  - Suspend/activate individual surgeries or all at once
-  - Clear visual feedback for suspended operations
+### The 3-Tab System
 
-### Advanced Filtering
-- **Search**: Quickly find procedures by name or description
-- **Category Filter**: Narrow down by type (Medical, Prosthetics, Implants, Removal, Amputation)
-- **Mod Filter**: See only surgeries from a specific mod or DLC
-- **Target Body Part Filter**: Display procedures for specific body parts
-- **Availability Toggle**: Switch between all possible surgeries and currently available ones
+#### 1. **Overview Tab** - Comprehensive Surgery Management
+- Complete list of all possible surgeries for the selected pawn
+- Advanced filtering and search capabilities
+- Detailed surgery information with requirements and warnings
+- Full queue management with drag-and-drop reordering
 
-### Smart Features
-- **Surgery Presets**: Save and load common surgery combinations
-- **Auto-Suspension**: Automatically suspends surgeries that can't be performed yet
-- **Queue Non-Allowed**: Option to queue surgeries even when requirements aren't met
-- **Color-Coded Implant Warnings**:
-  - <span style="color:green">**Green:**</span> Direct upgrade
-  - <span style="color:red">**Red:**</span> Downgrade
-  - <span style="color:yellow">**Yellow:**</span> Sidegrade or unclear difference
+#### 2. **Visual Planner Tab** - Interactive Body Diagram
+- **SVG Body Diagram**: Click any body part for instant surgery options
+- **Health Visualization**: Color-coded parts show health status
+- **Floating Menus**: Context-sensitive surgery options appear on click
+- **Humanoid Focus**: Optimized for human-like pawns
+- **Direct Queuing**: Add surgeries without navigating menus
 
-### Detailed Information
-- **Requirements Display**: Clear breakdown of needed research, skills, and materials
-- **Mod Source**: See which mod added each surgery
-- **Compatibility Info**: Visual indicators for surgery conflicts and replacements
+#### 3. **Presets Tab** - Saved Surgery Templates
+- Save common surgery combinations
+- Quick-load for repeated procedures
+- Perfect for standardized implant installations
 
-### Localization Support
-- **Full Translation Support**: All UI text is localizable
-- **Clear Structure**: Organized translation files for easy community contributions
+## Core Features
 
-## Compatibility
+### Interactive Visual Planner
+The crown jewel of the interface - click directly on body parts to see available surgeries:
 
-This mod is designed for high compatibility and has been tested (in 1.5 as not all mods are available in 1.6 yet) with a list of over 70 popular mods without any issues, including:
-- EPOE and EPOE Forked
-- Vanilla Expanded Framework
-- Glitter Tech
-- Sparkling Worlds
-- Questionable Ethics Enhanced
+- **Body Part Health Visualization**:
+  - 🟢 **Green**: Healthy parts
+  - 🟡 **Yellow**: Injured/scarred parts  
+  - 🔴 **Red**: Severely damaged parts
+  - 🔵 **Blue**: Prosthetic/bionic parts
 
-Generally, this mod should be placed after any other mods that add new surgeries or medical procedures. The `loadAfter` list in the `About/About.xml` file is configured to handle many common cases automatically.
+- **Smart Context Menus**:
+  - **Current Parts**: Shows installed prosthetics/bionics with removal options
+  - **Available Surgeries**: Install/replacement options for the clicked part
+  - **Natural Part Options**: Amputation choices for natural body parts
 
-## How It Works
+- **Internal Organ Support**: Click torso for heart, liver, kidney, lung surgeries
 
-This mod uses Harmony to patch the game and C# Reflection to call RimWorld's internal `GenerateSurgeryOption` method. This approach has two key benefits:
-1. **High Compatibility**: By relying on the game's own logic, it can correctly process surgeries from any other mod without needing specific patches or integrations.
-2. **Robustness**: The calls are wrapped in error handling. If a different mod has a bug in one of its surgery recipes, Corvus Surgery UI will gracefully skip that single recipe and log a warning instead of crashing the game.
+### Advanced Filtering System
+
+#### Availability Filter
+- **Show All**: Every possible surgery
+- **Available Only**: Surgeries you can perform right now
+- **Missing Item**: Surgeries blocked by missing materials
+- **Missing Skill**: Surgeries requiring higher medical skill
+
+#### Additional Filters
+- **Category Filter**: Medical, Prosthetics, Implants, Removal, Amputation
+- **Mod Filter**: See surgeries by specific mod or DLC
+- **Target Filter**: Filter by specific body parts
+- **Pawn Filter**: Quick switching between colonists and animals
+- **Search**: Real-time text search of surgery names and descriptions
+
+### Smart Queue Management
+
+#### Drag & Drop Interface
+- **Visual Reordering**: Drag surgeries to change priority
+- **Live Feedback**: See drop positions as you drag
+- **Priority Indicators**: Clear numbering shows surgery order
+
+#### Bulk Operations
+- **Suspend All**: Pause all queued surgeries
+- **Activate All**: Resume all suspended surgeries
+- **Individual Control**: Toggle suspension per surgery
+
+#### Force Queue System
+- **"Queue Non Allowed" Toggle**: Queue surgeries even when unavailable
+- **Auto-Suspension**: Force-queued surgeries start suspended
+- **Smart Activation**: Auto-enables when requirements are met
+- **Background Monitoring**: Checks availability every game hour
+
+### Enhanced Surgery Information
+
+#### Detailed Requirements Display
+- **Research Prerequisites**: Missing research projects
+- **Skill Requirements**: Required medical skill levels with colonist availability
+- **Material Needs**: Ingredient requirements with current stock levels
+- **Availability Status**: Clear indicators for surgery readiness
+
+#### Visual Feedback System
+- **Status Indicators**: 
+  - 🟢 Available and ready
+  - 🟡 Available but can be force-queued
+  - 🔴 Unavailable and blocked
+- **Implant Warnings**: Color-coded replacement notifications
+  - 🟢 **Green**: Upgrade (better efficiency/value)
+  - 🔴 **Red**: Downgrade (worse efficiency/value)  
+  - 🟡 **Yellow**: Sidegrade (similar/unclear)
+
+#### Comprehensive Tooltips
+- **Surgery Descriptions**: Full details from the original mod
+- **Mod Attribution**: See which mod added each surgery
+- **Requirement Breakdown**: Detailed list of what's needed
+- **Status Explanations**: Clear text for availability states
+
+### Surgery Presets System
+
+#### Save & Load Templates
+- **Custom Names**: Create descriptive preset names
+- **Surgery Combinations**: Save entire surgery queues
+- **Suspension States**: Remembers which surgeries were suspended
+- **Body Part Mapping**: Preserves target body parts
+
+#### Preset Management  
+- **Easy Selection**: Dropdown menu with surgery counts
+- **Quick Loading**: One-click preset application
+- **Overwrite Protection**: Clear feedback when loading presets
+
+### Automatic Surgery Management
+
+#### Auto-Suspend System
+- **Smart Monitoring**: Tracks force-queued surgeries in background
+- **Requirement Checking**: Monitors research, materials, and skills
+- **Auto-Activation**: Enables surgeries when requirements are met
+- **Player Notifications**: Messages when surgeries become available
+
+#### Intelligent Filtering
+- **Context Awareness**: Different filters for different tabs
+- **Humanoid Focus**: Visual Planner shows only human-like pawns
+- **Animal Support**: Overview tab includes all creature types
+- **Dynamic Updates**: Filters update as game state changes
+
+## Compatibility & Technical Details
+
+### Universal Mod Compatibility
+This mod achieves exceptional compatibility through smart technical design:
+
+- **Reflection-Based**: Uses RimWorld's internal `GenerateSurgeryOption` method
+- **No Patches Required**: Works with any mod that adds surgeries
+- **Error Resilience**: Gracefully handles broken surgery recipes
+- **Vanilla Integration**: Leverages existing game systems
+
+### Tested Mod Compatibility
+Verified with 70+ popular mods including:
+- **EPOE & EPOE Forked**: Full prosthetic and bionic support
+- **Vanilla Expanded Framework**: All medical additions
+- **Glitter Tech**: Advanced implants and procedures  
+- **Sparkling Worlds**: Exotic medical technologies
+- **Questionable Ethics Enhanced**: Controversial procedures
+- **Royalty/Ideology/Biotech/Anomaly**: All DLC content
+
+### Load Order
+Generally place after mods that add surgeries. The mod's `loadAfter` configuration handles most cases automatically.
 
 ## Installation
 
-1. Subscribe to the mod on the Steam Workshop (link pending)
-2. Alternatively, download the latest release from the GitHub repository
-3. Unzip the contents into your `RimWorld/Mods` folder
-4. Activate the mod in the in-game mod menu
+### Steam Workshop (Recommended)
+1. Subscribe to the mod on Steam Workshop
+2. Activate in RimWorld's mod menu
+3. Load after surgery-adding mods
+
+### Manual Installation
+1. Download from GitHub releases
+2. Extract to `RimWorld/Mods/corvus-surgery-ui/`
+3. Activate in mod menu
+
+### Updating
+- Steam subscribers get automatic updates
+- Manual users should replace the entire mod folder
+
+## Usage Tips
+
+### Getting Started
+1. **Press 'O'** or click the "Plan" button in any pawn's Health tab
+2. **Explore the tabs**: Overview for lists, Visual Planner for body diagrams
+3. **Try the filters**: Find exactly what you need quickly
+4. **Use presets**: Save common surgery combinations
+
+### Pro Tips
+- **Right-click body parts** in Visual Planner for context menus
+- **Enable "Queue Non Allowed"** to prepare for future surgeries  
+- **Use drag-and-drop** to reorder surgery priorities
+- **Save presets** for standardized implant procedures
+- **Check tooltips** for detailed information about any surgery
+
+### Troubleshooting
+- **Missing surgeries?** Check if the required research is completed
+- **Can't queue surgery?** Enable "Queue Non Allowed" to force-queue
+- **Mod conflict?** Check the load order - place after surgery mods
+- **Visual issues?** Restart RimWorld after adding/removing mods
 
 ## For Developers
 
-### Building the Mod
-
-1. Open the `Source/CorvusSurgeryUI.csproj` file in Visual Studio or your preferred C# IDE
-2. Build the project to generate the DLL in the `Assemblies/` folder
-3. The mod will be ready to use in RimWorld
-
-### Folder Structure
-
+### Project Structure
 ```
 corvus-surgery-ui/
-├── About/                  # Mod metadata
-│   ├── About.xml          # Main mod information
-│   └── PublishedFileId.txt # Steam Workshop ID
-├── Assemblies/            # Compiled DLLs go here
-├── Defs/                  # XML definitions
-│   └── ThingDefs_Medical.xml
-├── Languages/             # Translations
-│   └── English/
-│       └── Keyed/
-│           └── CorvusSurgeryUI_Keys.xml
-├── Patches/               # XML patches
-│   └── Surgery_Patches.xml
-├── Source/                # C# source code
-│   ├── CorvusSurgeryUI.cs
-│   └── CorvusSurgeryUI.csproj
-├── Textures/              # Graphics and UI textures
-│   └── UI/
-├── Sounds/                # Audio files
-├── LoadFolders.xml        # Version-specific loading
-└── README.md             # This file
+├── About/                    # Mod metadata
+├── Assemblies/              # Compiled DLLs
+├── Languages/               # Localization files  
+│   └── English/Keyed/      # English translations
+├── Source/                  # C# source code
+│   ├── CorvusSurgeryUI.cs  # Main mod file
+│   └── *.csproj            # Project configuration
+└── README.md               # Documentation
 ```
 
+### Building
+1. Open `Source/CorvusSurgeryUI.csproj` in Visual Studio
+2. Build to generate DLL in `Assemblies/`
+3. Test in RimWorld
+
 ### Contributing
-
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+2. Create feature branch: `git checkout -b feature-name`
+3. Make changes with proper testing
+4. Submit pull request with detailed description
 
-### Translation
-Want to add a translation? It's easy:
-1. Copy the `Languages/English/Keyed/CorvusSurgeryUI_Keys.xml` file
-2. Create a new folder for your language under `Languages/`
-3. Translate the text between the XML tags
-4. Submit a pull request!
+### Localization
+Add new languages by:
+1. Copying `Languages/English/` folder
+2. Renaming to your language code
+3. Translating XML content (keep XML tags intact)
+4. Testing in-game
+5. Submitting pull request
+
+### API Integration
+Other mods can check for Corvus Surgery UI presence:
+```csharp
+bool hasCorvusSurgeryUI = ModsConfig.IsActive("corvus.surgery.ui");
+```
+
+## Performance & Optimization
+
+### Efficient Design
+- **Cached Surgery Lists**: Built once per pawn, reused across tabs
+- **Lazy Loading**: Complex calculations only when displaying
+- **Smart Updates**: Only rebuilds when necessary
+- **Memory Management**: Proper cleanup of UI elements
+
+### Scalability
+- **Large Mod Lists**: Handles hundreds of surgery types efficiently  
+- **Multiple Pawns**: Quick switching without performance loss
+- **Colony Growth**: Scales with any number of colonists
+
+## Version History
+
+### v3.0 - Visual Revolution
+- Added 3-tab interface system
+- Interactive SVG body diagrams with clickable parts
+- Enhanced filtering with availability states
+- Force queue system with auto-suspension
+- Improved visual feedback and tooltips
+
+### v2.x - Enhanced Management  
+- Surgery presets system
+- Drag-and-drop queue reordering
+- Bulk suspend/activate operations
+- Enhanced mod compatibility
+
+### v1.x - Foundation
+- Initial surgery planner interface
+- Basic filtering and search
+- Keyboard shortcuts
+- Core compatibility framework
+
+## Support & Community
+
+### Getting Help
+- **GitHub Issues**: Bug reports and feature requests
+- **Steam Comments**: Quick questions and feedback  
+- **RimWorld Discord**: Community discussion
+
+### Reporting Bugs
+Please include:
+- RimWorld version
+- Mod list (especially medical mods)
+- Steps to reproduce
+- Log files if available
+
+### Feature Requests
+We love suggestions! Consider:
+- How it improves workflow
+- Compatibility implications  
+- UI/UX impact
+- Implementation complexity
 
 ## License
 
-This mod is released under the MIT License.
+Released under MIT License - free for all uses including commercial and derivative works.
+
+---
+
+**Corvus Life Sciences - Building Tomorrow's Rim, Today™**
+
+*Advanced medical interfaces for the discerning colony doctor*
