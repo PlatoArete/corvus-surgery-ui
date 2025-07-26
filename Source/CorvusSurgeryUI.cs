@@ -1648,7 +1648,7 @@ namespace CorvusSurgeryUI
                     .Where(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase))
                     .ToList();
                 
-                // Debug: Let's try different approaches to match left/right
+
                 if (bodyPart.SvgId.Contains("left"))
                 {
                     // Try multiple ways to find the left part
@@ -1886,7 +1886,7 @@ namespace CorvusSurgeryUI
         
         private void UpdateQueuedBills(Pawn pawn)
         {
-            // Temporarily set the thingForMedBills to the selected pawn
+                            // Set the thingForMedBills to the selected pawn
             var previousThing = thingForMedBills;
             thingForMedBills = pawn;
             
@@ -3884,6 +3884,61 @@ namespace CorvusSurgeryUI
             }
         }
 
+        private BodyPartRecord FindBodyPartRecord(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.RaceProps?.body?.AllParts == null) return null;
+            
+            // Handle special cases for body part matching
+            if (bodyPart.Index >= 0)
+            {
+                // For paired parts, get all matching parts
+                var parts = pawn.RaceProps.body.AllParts
+                    .Where(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
+                if (bodyPart.SvgId.Contains("left"))
+                {
+                    // Try multiple ways to find the left part
+                    var leftPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("left") == true) ??
+                                  parts.FirstOrDefault(p => p.Label.ToLower().Contains("left")) ??
+                                  parts.FirstOrDefault(p => p.def.label.ToLower().Contains("left"));
+                    
+                    if (leftPart != null) return leftPart;
+                    
+                    // If no explicit left found, try first part (index 0)
+                    return parts.OrderBy(p => p.def.index).FirstOrDefault();
+                }
+                else if (bodyPart.SvgId.Contains("right"))
+                {
+                    // Try multiple ways to find the right part
+                    var rightPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("right") == true) ??
+                                   parts.FirstOrDefault(p => p.Label.ToLower().Contains("right")) ??
+                                   parts.FirstOrDefault(p => p.def.label.ToLower().Contains("right"));
+                    
+                    if (rightPart != null) return rightPart;
+                    
+                    // If no explicit right found, try second part (index 1)
+                    var orderedParts = parts.OrderBy(p => p.def.index).ToList();
+                    return orderedParts.Count > 1 ? orderedParts[1] : orderedParts.LastOrDefault();
+                }
+                
+                // Fallback to index-based matching for non-left/right parts
+                var sortedParts = parts.OrderBy(p => p.def.index).ToList();
+                if (bodyPart.Index < sortedParts.Count)
+                {
+                    return sortedParts[bodyPart.Index];
+                }
+            }
+            else
+            {
+                // For single parts, find by name
+                return pawn.RaceProps.body.AllParts
+                    .FirstOrDefault(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase));
+            }
+            
+            return null;
+        }
+
         private Color GetBodyPartColor(BodyPartRegion bodyPart, Pawn pawn)
         {
             if (pawn?.health?.hediffSet == null) return Color.gray * 0.3f;
@@ -3948,62 +4003,6 @@ namespace CorvusSurgeryUI
             }
             
             return tooltip;
-        }
-
-        private BodyPartRecord FindBodyPartRecord(BodyPartRegion bodyPart, Pawn pawn)
-        {
-            if (pawn?.RaceProps?.body?.AllParts == null) return null;
-            
-            // Handle special cases for body part matching
-            if (bodyPart.Index >= 0)
-            {
-                // For paired parts, get all matching parts
-                var parts = pawn.RaceProps.body.AllParts
-                    .Where(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-                
-                // Debug: Let's try different approaches to match left/right
-                if (bodyPart.SvgId.Contains("left"))
-                {
-                    // Try multiple ways to find the left part
-                    var leftPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("left") == true) ??
-                                  parts.FirstOrDefault(p => p.Label.ToLower().Contains("left")) ??
-                                  parts.FirstOrDefault(p => p.def.label.ToLower().Contains("left"));
-                    
-                    if (leftPart != null) return leftPart;
-                    
-                    // If no explicit left found, try first part (index 0)
-                    return parts.OrderBy(p => p.def.index).FirstOrDefault();
-                }
-                else if (bodyPart.SvgId.Contains("right"))
-                {
-                    // Try multiple ways to find the right part
-                    var rightPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("right") == true) ??
-                                   parts.FirstOrDefault(p => p.Label.ToLower().Contains("right")) ??
-                                   parts.FirstOrDefault(p => p.def.label.ToLower().Contains("right"));
-                    
-                    if (rightPart != null) return rightPart;
-                    
-                    // If no explicit right found, try second part (index 1)
-                    var orderedParts = parts.OrderBy(p => p.def.index).ToList();
-                    return orderedParts.Count > 1 ? orderedParts[1] : orderedParts.LastOrDefault();
-                }
-                
-                // Fallback to index-based matching for non-left/right parts
-                var sortedParts = parts.OrderBy(p => p.def.index).ToList();
-                if (bodyPart.Index < sortedParts.Count)
-                {
-                    return sortedParts[bodyPart.Index];
-                }
-            }
-            else
-            {
-                // For single parts, find by name
-                return pawn.RaceProps.body.AllParts
-                    .FirstOrDefault(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase));
-            }
-            
-            return null;
         }
     }
 
