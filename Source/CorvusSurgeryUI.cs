@@ -2318,10 +2318,19 @@ namespace CorvusSurgeryUI
             }
 
             var availableRect = new Rect(implantsRect.x - 110f, dropdownY, 100f, DROPDOWN_HEIGHT);
-            if (Widgets.ButtonText(availableRect, "Available Only"))
+            string availabilityButtonText = GetAvailabilityFilterText(availabilityFilter);
+            if (Widgets.ButtonText(availableRect, availabilityButtonText))
             {
-                availabilityFilter = AvailabilityFilter.ShowAvailableOnly;
-                ApplyFilters();
+                List<FloatMenuOption> availabilityOptions = new List<FloatMenuOption>();
+                foreach (AvailabilityFilter filter in Enum.GetValues(typeof(AvailabilityFilter)))
+                {
+                    var count = GetFilteredCount(filter);
+                    availabilityOptions.Add(new FloatMenuOption($"{GetAvailabilityFilterText(filter)} ({count})", () => {
+                        availabilityFilter = filter;
+                        ApplyFilters();
+                    }));
+                }
+                Find.WindowStack.Add(new FloatMenu(availabilityOptions));
             }
 
             var clearRect = new Rect(availableRect.x - 90f, dropdownY, 80f, DROPDOWN_HEIGHT);
