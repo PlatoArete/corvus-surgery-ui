@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Xml;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
@@ -112,7 +113,7 @@ namespace CorvusSurgeryUI
             try
             {
                 var presetList = allPresets.Values.ToList();
-                var json = JsonConvert.SerializeObject(presetList, Formatting.Indented);
+                var json = JsonConvert.SerializeObject(presetList, Newtonsoft.Json.Formatting.Indented);
                 File.WriteAllText(presetsFile, json);
                 Log.Message($"Corvus Surgery UI: Saved {presetList.Count} presets to disk");
             }
@@ -427,7 +428,7 @@ namespace CorvusSurgeryUI
                         Items = preset.Items
                     };
                     
-                    var json = JsonConvert.SerializeObject(exportData, Formatting.Indented);
+                    var json = JsonConvert.SerializeObject(exportData, Newtonsoft.Json.Formatting.Indented);
                     File.WriteAllText(filePath, json);
                     Messages.Message($"Preset '{presetName}' exported to {filePath}.", MessageTypeDefOf.PositiveEvent);
                 }
@@ -793,6 +794,11 @@ namespace CorvusSurgeryUI
         
         // Presets tab selected pawn
         private Pawn selectedPresetsPawn = null;
+        
+        // Visual Planner tab
+        private SvgBodyDiagram bodyDiagram = new SvgBodyDiagram();
+        private BodyPartRegion clickedBodyPart = null;
+        private bool showFloatingDropdown = false;
 
         // Performance optimization - static caches
         private static Dictionary<RecipeDef, SurgeryCategory> recipeCategoryCache = new Dictionary<RecipeDef, SurgeryCategory>();
@@ -811,7 +817,8 @@ namespace CorvusSurgeryUI
             tabs = new List<TabRecord>
             {
                 new TabRecord("Overview", () => { selectedTabIndex = 0; }, () => selectedTabIndex == 0),
-                new TabRecord("Presets", () => { selectedTabIndex = 1; }, () => selectedTabIndex == 1)
+                new TabRecord("Visual Planner", () => { selectedTabIndex = 1; }, () => selectedTabIndex == 1),
+                new TabRecord("Presets", () => { selectedTabIndex = 2; }, () => selectedTabIndex == 2)
             };
             
             // Load last selected tab from settings
@@ -853,6 +860,10 @@ namespace CorvusSurgeryUI
             }
             else if (selectedTabIndex == 1)
             {
+                DrawVisualPlannerTab(inRect);
+            }
+            else if (selectedTabIndex == 2)
+            {
                 DrawPresetsTab(inRect);
             }
             
@@ -870,7 +881,7 @@ namespace CorvusSurgeryUI
 
             // Draw filters section
             var filtersRect = new Rect(rect.x, currentY, rect.width, FILTER_HEIGHT);
-            DrawFilters(filtersRect);
+            DrawFilters(filtersRect); // Overview tab allows all pawns
             currentY += FILTER_HEIGHT + SECTION_SPACING;
 
             // Info bar with pawn name and surgery count
@@ -1143,6 +1154,511 @@ namespace CorvusSurgeryUI
                      origGuests != showGuests;
             
             return changed;
+        }
+        
+        private void DrawVisualPlannerTab(Rect rect)
+        {
+            float currentY = rect.y + 5f;
+            
+            // Get humanoid pawns only (no animals for Visual Planner)
+            var humanoidPawns = GetHumanoidPawns();
+            
+            // Ensure we have a selected pawn (default to first)
+            if (pawn == null || !humanoidPawns.Contains(pawn) || pawn.RaceProps.Animal)
+            {
+                pawn = humanoidPawns.FirstOrDefault();
+                if (pawn != null)
+                {
+                    BuildFullSurgeryList();
+                    ApplyFilters();
+                    LoadQueuedBills();
+                }
+            }
+            
+            // Filters section (same as Overview tab but with humanoid pawns only)
+            var filtersRect = new Rect(rect.x, currentY, rect.width, FILTER_HEIGHT);
+            DrawFilters(filtersRect, true); // true = humanoids only
+            currentY += FILTER_HEIGHT + SECTION_SPACING;
+
+            // Info bar with pawn name and surgery count
+            var surgeryCount = filteredSurgeries?.Count ?? 0;
+            var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
+            if (pawn != null)
+            {
+                Widgets.Label(infoRect, $"{pawn.LabelShort} ({surgeryCount} surgeries found)");
+            }
+            else
+            {
+                Widgets.Label(infoRect, "No humanoid pawns available");
+            }
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            // Search and Queue Non Allowed controls (same as Overview tab)
+            var searchLabelRect = new Rect(rect.x, currentY + 2f, 50f, DROPDOWN_HEIGHT);
+            Widgets.Label(searchLabelRect, "Search:");
+            
+            var searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 200f, DROPDOWN_HEIGHT);
+            string newFilter = Widgets.TextField(searchRect, searchFilter);
+            if (newFilter != searchFilter)
+            {
+                searchFilter = newFilter;
+                ApplyFilters();
+            }
+
+            var queueToggleRect = new Rect(searchRect.xMax + 20f, currentY, 200f, DROPDOWN_HEIGHT);
+            bool newAllowQueueingDisabled = allowQueueingDisabled;
+            Widgets.CheckboxLabeled(queueToggleRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
+            if (newAllowQueueingDisabled != allowQueueingDisabled)
+            {
+                allowQueueingDisabled = newAllowQueueingDisabled;
+                ApplyFilters();
+            }
+            currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
+
+            if (pawn == null) return;
+
+            // Split the remaining area for body diagram and queued bills
+            var remainingRect = new Rect(rect.x, currentY, rect.width, rect.height - (currentY - rect.y));
+            
+            var queueWidth = 500f;
+            var diagramWidth = remainingRect.width - queueWidth - 10f;
+
+            // Body Diagram (left side)
+            var diagramRect = new Rect(remainingRect.x, remainingRect.y, diagramWidth, remainingRect.height);
+            DrawBodyDiagram(diagramRect);
+
+            // Surgery Queue (right side)
+            var queuedBillsRect = new Rect(diagramRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
+            DrawQueuedBills(queuedBillsRect);
+            
+            // Handle floating dropdown
+            if (showFloatingDropdown && clickedBodyPart != null)
+            {
+                DrawFloatingBodyPartDropdown();
+            }
+        }
+        
+        private List<Pawn> GetHumanoidPawns()
+        {
+            var humanoidPawns = new List<Pawn>();
+            
+            // Get all maps
+            var maps = Current.Game?.Maps;
+            if (maps == null) return humanoidPawns;
+            
+            foreach (var map in maps)
+            {
+                if (map?.mapPawns == null) continue;
+                
+                // Get all humanoid pawns (exclude animals)
+                var mapPawns = map.mapPawns.AllPawnsSpawned
+                    .Where(p => CanHaveSurgery(p) && !p.RaceProps.Animal);
+                humanoidPawns.AddRange(mapPawns);
+            }
+            
+            return humanoidPawns.OrderBy(p => p.LabelShort).ToList();
+        }
+        
+        private void DrawBodyDiagram(Rect rect)
+        {
+            // Draw header
+            Text.Font = GameFont.Medium;
+            var headerRect = new Rect(rect.x, rect.y, rect.width, 25f);
+            Widgets.Label(headerRect, "Body Diagram");
+            Text.Font = GameFont.Small;
+            
+            // Adjust diagram area
+            var diagramArea = new Rect(rect.x, rect.y + 30f, rect.width, rect.height - 30f);
+            
+            // Draw the body diagram
+            bodyDiagram.DrawBodyDiagram(diagramArea, pawn);
+            
+            // Handle clicks on the body diagram
+            if (Event.current.type == EventType.MouseDown && Event.current.button == 0 && diagramArea.Contains(Event.current.mousePosition))
+            {
+                var relativeClickPos = Event.current.mousePosition - new Vector2(diagramArea.x, diagramArea.y);
+                var clickedPart = bodyDiagram.GetClickedBodyPart(relativeClickPos, diagramArea);
+                
+                if (clickedPart != null)
+                {
+                    clickedBodyPart = clickedPart;
+                    showFloatingDropdown = true;
+                    Event.current.Use();
+                }
+            }
+        }
+        
+        private void DrawFloatingBodyPartDropdown()
+        {
+            if (clickedBodyPart == null || pawn == null) return;
+            
+            // Get surgeries and current parts for this body part
+            var bodyPartSurgeries = GetSurgeriesForBodyPart(clickedBodyPart);
+            var currentParts = GetCurrentPartsForBodyPart(clickedBodyPart);
+            
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            
+            // === SECTION 1: HEADER ===
+            var headerText = !string.IsNullOrEmpty(clickedBodyPart.SvgId) ? 
+                clickedBodyPart.SvgId.CapitalizeFirst() : "Body Part";
+            options.Add(new FloatMenuOption($"─── {headerText} ───", null) { Disabled = true });
+            
+            // === SECTION 2: CURRENT PARTS ===
+            if (currentParts.Any())
+            {
+                options.Add(new FloatMenuOption("Current parts:", null) { Disabled = true });
+                
+                foreach (var part in currentParts)
+                {
+                    if (!part.Contains("(Missing)"))
+                    {
+                        if (part.Contains("(Natural)"))
+                        {
+                            // For natural parts, look for amputation surgeries
+                            var amputationSurgeries = bodyPartSurgeries
+                                .Where(s => s.Label.ToLower().Contains("amputat") ||
+                                           s.Recipe.defName.ToLower().Contains("amputat"))
+                                .ToList();
+                            
+                            if (amputationSurgeries.Any())
+                            {
+                                var ampSurgery = amputationSurgeries.First();
+                                options.Add(new FloatMenuOption($"  Amputate {part.Replace(" (Natural)", "")}", () => {
+                                    QueueSurgeryFromBodyPart(ampSurgery, clickedBodyPart);
+                                    showFloatingDropdown = false;
+                                }));
+                            }
+                            else
+                            {
+                                // Show as info if no amputation available
+                                options.Add(new FloatMenuOption($"  {part}", null) { Disabled = true });
+                            }
+                        }
+                        else
+                        {
+                            // For installed prosthetics/bionics, allow removal
+                            var removalSurgeries = bodyPartSurgeries
+                                .Where(s => s.Label.ToLower().Contains("remove") && 
+                                           !s.Label.ToLower().Contains("install") &&
+                                           !s.Label.ToLower().Contains("amputat"))
+                                .ToList();
+                            
+                            if (removalSurgeries.Any())
+                            {
+                                var removalSurgery = removalSurgeries.First();
+                                options.Add(new FloatMenuOption($"  Remove {part}", () => {
+                                    QueueSurgeryFromBodyPart(removalSurgery, clickedBodyPart);
+                                    showFloatingDropdown = false;
+                                }));
+                            }
+                            else
+                            {
+                                options.Add(new FloatMenuOption($"  {part} (no removal available)", null) { Disabled = true });
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // For missing parts, show as info
+                        options.Add(new FloatMenuOption($"  {part}", null) { Disabled = true });
+                    }
+                }
+            }
+            
+            // === SECTION 3: AVAILABLE SURGERIES ===
+            // Only show install/replacement surgeries here
+            var installSurgeries = bodyPartSurgeries
+                .Where(s => s.Label.ToLower().Contains("install") || 
+                           s.Label.ToLower().Contains("replace") ||
+                           (!s.Label.ToLower().Contains("amputat") && 
+                            !s.Label.ToLower().Contains("remove")))
+                .ToList();
+                
+            if (installSurgeries.Any())
+            {
+                foreach (var surgery in installSurgeries)
+                {
+                    // Fix missing label issue
+                    var surgeryLabel = !string.IsNullOrEmpty(surgery.Label) ? surgery.Label : "Unknown Surgery";
+                    
+                    var option = new FloatMenuOption($"  {surgeryLabel}", () => {
+                        QueueSurgeryFromBodyPart(surgery, clickedBodyPart);
+                        showFloatingDropdown = false;
+                    });
+                    
+                    // Add tooltip if surgery has description
+                    if (!surgery.Description.NullOrEmpty())
+                    {
+                        option.tooltip = surgery.Description;
+                    }
+                    
+                    // Disable if surgery is not available
+                    if (!surgery.IsAvailable)
+                    {
+                        option.Disabled = true;
+                        option.tooltip = surgery.Requirements ?? "Surgery not available";
+                    }
+                    
+                    options.Add(option);
+                }
+            }
+            else if (!currentParts.Any())
+            {
+                // Only show "No surgeries available" if there are no current parts either
+                options.Add(new FloatMenuOption("No surgeries available", null) { Disabled = true });
+            }
+            
+            // Create and show the float menu
+            var floatMenu = new FloatMenu(options);
+            Find.WindowStack.Add(floatMenu);
+            
+            // Reset the dropdown state
+            showFloatingDropdown = false;
+        }
+        
+        private List<SurgeryOptionCached> GetSurgeriesForBodyPart(BodyPartRegion bodyPartRegion)
+        {
+            if (filteredSurgeries == null) return new List<SurgeryOptionCached>();
+            
+            var relevantSurgeries = new List<SurgeryOptionCached>();
+            
+            // Get the actual RimWorld body part that corresponds to the clicked region
+            var clickedActualBodyPart = FindBodyPartRecord(bodyPartRegion, pawn);
+            
+            foreach (var surgery in filteredSurgeries)
+            {
+                // Check if surgery targets this specific body part
+                if (surgery.BodyPart != null && clickedActualBodyPart != null)
+                {
+                    // Direct match: surgery targets the exact body part that was clicked
+                    if (surgery.BodyPart == clickedActualBodyPart)
+                    {
+                        relevantSurgeries.Add(surgery);
+                    }
+                }
+                else if (bodyPartRegion.IsSubPart && bodyPartRegion.SubParts != null)
+                {
+                    // For sub-parts like ribcage/torso, check if surgery affects internal organs
+                    foreach (var subPart in bodyPartRegion.SubParts)
+                    {
+                        bool surgeryMatches = false;
+                        
+                        // Check surgery recipe names and labels
+                        if (!string.IsNullOrEmpty(surgery.Recipe?.defName) && 
+                            surgery.Recipe.defName.ToLower().Contains(subPart.ToLower()))
+                        {
+                            surgeryMatches = true;
+                        }
+                        
+                        if (!surgeryMatches && !string.IsNullOrEmpty(surgery.Recipe?.label) && 
+                            surgery.Recipe.label.ToLower().Contains(subPart.ToLower()))
+                        {
+                            surgeryMatches = true;
+                        }
+                        
+                        if (!surgeryMatches && !string.IsNullOrEmpty(surgery.Label) && 
+                            surgery.Label.ToLower().Contains(subPart.ToLower()))
+                        {
+                            surgeryMatches = true;
+                        }
+                        
+                        // Check if the surgery's body part matches any sub-part by name
+                        if (!surgeryMatches && surgery.BodyPart != null)
+                        {
+                            var partDefName = surgery.BodyPart.def.defName.ToLower();
+                            var partLabel = surgery.BodyPart.def.label?.ToLower() ?? "";
+                            
+                            if (partDefName.Contains(subPart.ToLower()) || 
+                                subPart.ToLower().Contains(partDefName) ||
+                                partLabel.Contains(subPart.ToLower()) || 
+                                subPart.ToLower().Contains(partLabel))
+                            {
+                                surgeryMatches = true;
+                            }
+                        }
+                        
+                        // Also check for common organ name variations
+                        if (!surgeryMatches)
+                        {
+                            var organVariations = GetOrganNameVariations(subPart.ToLower());
+                            foreach (var variation in organVariations)
+                            {
+                                if ((!string.IsNullOrEmpty(surgery.Label) && surgery.Label.ToLower().Contains(variation)) ||
+                                    (!string.IsNullOrEmpty(surgery.Recipe?.label) && surgery.Recipe.label.ToLower().Contains(variation)) ||
+                                    (!string.IsNullOrEmpty(surgery.Recipe?.defName) && surgery.Recipe.defName.ToLower().Contains(variation)))
+                                {
+                                    surgeryMatches = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (surgeryMatches)
+                        {
+                            relevantSurgeries.Add(surgery);
+                            break; // Don't add the same surgery multiple times
+                        }
+                    }
+                }
+                
+                // Also check for general surgeries that might apply to this region
+                else if (surgery.Recipe != null)
+                {
+                    var recipeName = surgery.Recipe.defName.ToLower();
+                    var recipeLabel = surgery.Recipe.label.ToLower();
+                    var regionName = bodyPartRegion.SvgId.ToLower();
+                    
+                    // Check for general body region matches
+                    if (recipeName.Contains(regionName) || recipeLabel.Contains(regionName))
+                    {
+                        relevantSurgeries.Add(surgery);
+                    }
+                }
+            }
+            
+            return relevantSurgeries;
+        }
+        
+        private List<string> GetOrganNameVariations(string organName)
+        {
+            var variations = new List<string> { organName };
+            
+            // Add common variations for organ names that might appear in surgery recipes
+            switch (organName)
+            {
+                case "lung":
+                    variations.AddRange(new[] { "lungs", "pulmonary", "respiratory" });
+                    break;
+                case "heart":
+                    variations.AddRange(new[] { "cardiac", "cardio" });
+                    break;
+                case "liver":
+                    variations.AddRange(new[] { "hepatic" });
+                    break;
+                case "kidney":
+                    variations.AddRange(new[] { "kidneys", "renal" });
+                    break;
+                case "stomach":
+                    variations.AddRange(new[] { "gastric" });
+                    break;
+                case "rib":
+                    variations.AddRange(new[] { "ribs", "ribcage" });
+                    break;
+            }
+            
+            return variations;
+        }
+        
+        private List<string> GetCurrentPartsForBodyPart(BodyPartRegion bodyPartRegion)
+        {
+            if (pawn?.health?.hediffSet == null) return new List<string>();
+            
+            var currentParts = new List<string>();
+            var actualBodyPart = FindBodyPartRecord(bodyPartRegion, pawn);
+            
+            if (actualBodyPart == null) return currentParts;
+            
+            // Check if the part is missing
+            if (pawn.health.hediffSet.PartIsMissing(actualBodyPart))
+            {
+                currentParts.Add("(Missing)");
+                return currentParts;
+            }
+            
+            // Check for installed prosthetics/bionics
+            var installedParts = pawn.health.hediffSet.hediffs
+                .Where(h => h.Part == actualBodyPart && h.def.spawnThingOnRemoved != null)
+                .ToList();
+            
+            foreach (var part in installedParts)
+            {
+                currentParts.Add(part.def.LabelCap.ToString());
+            }
+            
+            // If no artificial parts, show natural part
+            if (!installedParts.Any())
+            {
+                currentParts.Add(actualBodyPart.LabelCap.ToString() + " (Natural)");
+            }
+            
+            return currentParts;
+        }
+        
+        private void QueueSurgeryFromBodyPart(SurgeryOptionCached surgery, BodyPartRegion bodyPart)
+        {
+            try
+            {
+                if (pawn is IBillGiver billGiver && billGiver.BillStack != null)
+                {
+                    var bill = new Bill_Medical(surgery.Recipe, null);
+                    bill.Part = surgery.BodyPart;
+                    billGiver.BillStack.AddBill(bill);
+                    LoadQueuedBills(); // Refresh the queue
+                    
+                    Messages.Message($"Queued {surgery.Recipe.LabelCap} for {pawn.LabelShort}", 
+                        MessageTypeDefOf.PositiveEvent);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Corvus Surgery UI: Error queuing surgery from body part: {ex}");
+            }
+        }
+        
+        private BodyPartRecord FindBodyPartRecord(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.RaceProps?.body?.AllParts == null) return null;
+            
+            // Handle special cases for body part matching
+            if (bodyPart.Index >= 0)
+            {
+                // For paired parts, get all matching parts
+                var parts = pawn.RaceProps.body.AllParts
+                    .Where(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
+                // Debug: Let's try different approaches to match left/right
+                if (bodyPart.SvgId.Contains("left"))
+                {
+                    // Try multiple ways to find the left part
+                    var leftPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("left") == true) ??
+                                  parts.FirstOrDefault(p => p.Label.ToLower().Contains("left")) ??
+                                  parts.FirstOrDefault(p => p.def.label.ToLower().Contains("left"));
+                    
+                    if (leftPart != null) return leftPart;
+                    
+                    // If no explicit left found, try first part (index 0)
+                    return parts.OrderBy(p => p.def.index).FirstOrDefault();
+                }
+                else if (bodyPart.SvgId.Contains("right"))
+                {
+                    // Try multiple ways to find the right part
+                    var rightPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("right") == true) ??
+                                   parts.FirstOrDefault(p => p.Label.ToLower().Contains("right")) ??
+                                   parts.FirstOrDefault(p => p.def.label.ToLower().Contains("right"));
+                    
+                    if (rightPart != null) return rightPart;
+                    
+                    // If no explicit right found, try second part (index 1)
+                    var orderedParts = parts.OrderBy(p => p.def.index).ToList();
+                    return orderedParts.Count > 1 ? orderedParts[1] : orderedParts.LastOrDefault();
+                }
+                
+                // Fallback to index-based matching for non-left/right parts
+                var sortedParts = parts.OrderBy(p => p.def.index).ToList();
+                if (bodyPart.Index < sortedParts.Count)
+                {
+                    return sortedParts[bodyPart.Index];
+                }
+            }
+            else
+            {
+                // For single parts, find by name
+                return pawn.RaceProps.body.AllParts
+                    .FirstOrDefault(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase));
+            }
+            
+            return null;
         }
         
         private void DrawPresetsTabControls(Rect rect, List<Pawn> eligiblePawns)
@@ -1699,7 +2215,7 @@ namespace CorvusSurgeryUI
             GUI.color = Color.white;
         }
 
-        private void DrawFilters(Rect rect)
+        private void DrawFilters(Rect rect, bool humanoidsOnly = false)
         {
             float currentY = rect.y;
 
@@ -1764,7 +2280,7 @@ namespace CorvusSurgeryUI
             var pawnRect = new Rect(targetRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
             if (Widgets.ButtonText(pawnRect, pawn.LabelShort))
             {
-                DrawPawnDropdown(pawnRect);
+                DrawPawnDropdown(pawnRect, humanoidsOnly);
             }
             if (Mouse.IsOver(pawnRect))
             {
@@ -1851,13 +2367,14 @@ namespace CorvusSurgeryUI
             Find.WindowStack.Add(new FloatMenu(options));
         }
 
-        private void DrawPawnDropdown(Rect rect)
+        private void DrawPawnDropdown(Rect rect, bool humanoidsOnly = false)
         {
             List<FloatMenuOption> options = new List<FloatMenuOption>();
             
             var allPawns = Find.Maps.SelectMany(m => m.mapPawns.AllPawns)
                 .Where(p => p.Faction == Faction.OfPlayer && 
-                    (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null)))
+                    (humanoidsOnly ? p.RaceProps.Humanlike : 
+                     (p.RaceProps.Humanlike || (p.RaceProps.Animal && p.health?.hediffSet != null))))
                 .OrderByDescending(p => p.RaceProps.Humanlike)
                 .ThenBy(p => p.LabelShort);
 
@@ -3183,6 +3700,275 @@ namespace CorvusSurgeryUI
         Slave = 2,
         Animal = 3,
         Guest = 4
+    }
+
+    // Body part mapping for Visual Planner
+    public class BodyPartRegion
+    {
+        public string SvgId { get; set; }
+        public string BodyPartDefName { get; set; }
+        public int Index { get; set; }
+        public Rect Bounds { get; set; }
+        public bool IsSubPart { get; set; }
+        public List<string> SubParts { get; set; } = new List<string>();
+
+        public BodyPartRegion(string svgId, string bodyPartDefName, int index, Rect bounds)
+        {
+            SvgId = svgId;
+            BodyPartDefName = bodyPartDefName;
+            Index = index;
+            Bounds = bounds;
+        }
+    }
+
+    public class SvgBodyDiagram
+    {
+        private Dictionary<string, BodyPartRegion> bodyParts = new Dictionary<string, BodyPartRegion>();
+        private float svgWidth = 1000f;
+        private float svgHeight = 800f;
+
+        public SvgBodyDiagram()
+        {
+            InitializeBodyParts();
+        }
+
+        private void InitializeBodyParts()
+        {
+            // Map SVG elements to RimWorld body parts with approximate bounds
+            // These bounds correspond to the SVG coordinates
+            bodyParts["head"] = new BodyPartRegion("head", "Head", -1, new Rect(440, 30, 120, 100));
+            bodyParts["neck"] = new BodyPartRegion("neck", "Neck", -1, new Rect(485, 140, 30, 25));
+            bodyParts["left-shoulder"] = new BodyPartRegion("left-shoulder", "Shoulder", 0, new Rect(368, 178, 44, 44));
+            bodyParts["right-shoulder"] = new BodyPartRegion("right-shoulder", "Shoulder", 1, new Rect(588, 178, 44, 44));
+            bodyParts["torso"] = new BodyPartRegion("torso", "Torso", -1, new Rect(440, 180, 120, 200));
+            bodyParts["left-arm"] = new BodyPartRegion("left-arm", "Arm", 0, new Rect(320, 240, 35, 120));
+            bodyParts["right-arm"] = new BodyPartRegion("right-arm", "Arm", 1, new Rect(645, 240, 35, 120));
+            bodyParts["left-hand"] = new BodyPartRegion("left-hand", "Hand", 0, new Rect(315, 370, 40, 50));
+            bodyParts["right-hand"] = new BodyPartRegion("right-hand", "Hand", 1, new Rect(645, 370, 40, 50));
+            bodyParts["pelvis"] = new BodyPartRegion("pelvis", "Pelvis", -1, new Rect(460, 400, 80, 60));
+            bodyParts["left-leg"] = new BodyPartRegion("left-leg", "Leg", 0, new Rect(420, 480, 30, 150));
+            bodyParts["right-leg"] = new BodyPartRegion("right-leg", "Leg", 1, new Rect(550, 480, 30, 150));
+            bodyParts["left-foot"] = new BodyPartRegion("left-foot", "Foot", 0, new Rect(410, 650, 50, 30));
+            bodyParts["right-foot"] = new BodyPartRegion("right-foot", "Foot", 1, new Rect(540, 650, 50, 30));
+            
+            // Sub-containers for internal organs
+            bodyParts["ribcage"] = new BodyPartRegion("ribcage", "Ribcage", -1, new Rect(450, 195, 100, 75));
+            bodyParts["spine"] = new BodyPartRegion("spine", "Spine", -1, new Rect(495, 190, 10, 180));
+
+            // Set up sub-parts for complex regions
+            bodyParts["ribcage"].IsSubPart = true;
+            bodyParts["ribcage"].SubParts.AddRange(new[] { "Lung", "Heart", "Rib" }); // Ribcage contains heart, lungs, ribs
+            
+            bodyParts["torso"].IsSubPart = true;
+            bodyParts["torso"].SubParts.AddRange(new[] { "Liver", "Kidney", "Stomach" }); // Torso contains liver, kidneys, stomach
+        }
+
+        public Dictionary<string, BodyPartRegion> GetBodyParts() => bodyParts;
+
+        public BodyPartRegion GetClickedBodyPart(Vector2 clickPosition, Rect drawArea)
+        {
+            // Convert click position to SVG coordinates
+            float scaleX = svgWidth / drawArea.width;
+            float scaleY = svgHeight / drawArea.height;
+            
+            Vector2 svgPosition = new Vector2(
+                clickPosition.x * scaleX,
+                clickPosition.y * scaleY
+            );
+
+            // Check which body part was clicked (prioritize smaller parts over larger ones)
+            var sortedParts = bodyParts.Values.OrderBy(bp => bp.Bounds.width * bp.Bounds.height);
+            
+            foreach (var bodyPart in sortedParts)
+            {
+                if (bodyPart.Bounds.Contains(svgPosition))
+                {
+                    return bodyPart;
+                }
+            }
+
+            return null;
+        }
+
+        public void DrawBodyDiagram(Rect drawArea, Pawn pawn)
+        {
+            // Calculate scaling to fit the draw area while maintaining aspect ratio
+            float scaleX = drawArea.width / svgWidth;
+            float scaleY = drawArea.height / svgHeight;
+            float scale = Math.Min(scaleX, scaleY);
+            
+            float scaledWidth = svgWidth * scale;
+            float scaledHeight = svgHeight * scale;
+            
+            // Center the diagram in the draw area
+            float offsetX = (drawArea.width - scaledWidth) / 2f;
+            float offsetY = (drawArea.height - scaledHeight) / 2f;
+            
+            var centeredArea = new Rect(drawArea.x + offsetX, drawArea.y + offsetY, scaledWidth, scaledHeight);
+            
+            // Draw background
+            Widgets.DrawBoxSolid(centeredArea, Color.black * 0.1f);
+            Widgets.DrawBox(centeredArea, 1);
+            
+            // Draw body parts
+            foreach (var bodyPart in bodyParts.Values)
+            {
+                DrawBodyPart(bodyPart, centeredArea, scale, pawn);
+            }
+        }
+
+        private void DrawBodyPart(BodyPartRegion bodyPart, Rect drawArea, float scale, Pawn pawn)
+        {
+            // Scale and position the body part rectangle
+            var scaledRect = new Rect(
+                drawArea.x + (bodyPart.Bounds.x * scale),
+                drawArea.y + (bodyPart.Bounds.y * scale),
+                bodyPart.Bounds.width * scale,
+                bodyPart.Bounds.height * scale
+            );
+
+            // Determine body part state for coloring
+            Color partColor = GetBodyPartColor(bodyPart, pawn);
+            
+            // Draw the body part
+            Widgets.DrawBoxSolid(scaledRect, partColor);
+            Widgets.DrawBox(scaledRect, 1);
+            
+            // Add hover effect
+            if (Mouse.IsOver(scaledRect))
+            {
+                Widgets.DrawHighlight(scaledRect);
+                
+                // Show tooltip with body part info
+                string tooltip = GetBodyPartTooltip(bodyPart, pawn);
+                if (!tooltip.NullOrEmpty())
+                {
+                    TooltipHandler.TipRegion(scaledRect, tooltip);
+                }
+            }
+        }
+
+        private Color GetBodyPartColor(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.health?.hediffSet == null) return Color.gray * 0.3f;
+            
+            // Find the actual body part record
+            var actualBodyPart = FindBodyPartRecord(bodyPart, pawn);
+            if (actualBodyPart == null) return Color.gray * 0.3f;
+            
+            // Check if missing
+            if (pawn.health.hediffSet.PartIsMissing(actualBodyPart))
+            {
+                return Color.red * 0.4f; // Missing parts in red
+            }
+            
+            // Check for prosthetics/bionics
+            var prosthetics = pawn.health.hediffSet.hediffs
+                .Where(h => h.Part == actualBodyPart && h.def.spawnThingOnRemoved != null)
+                .ToList();
+            
+            if (prosthetics.Any())
+            {
+                // Check if bionic (high-tech)
+                if (prosthetics.Any(p => p.def.spawnThingOnRemoved.techLevel >= TechLevel.Spacer))
+                {
+                    return Color.cyan * 0.4f; // Bionics in cyan
+                }
+                return Color.yellow * 0.4f; // Prosthetics in yellow
+            }
+            
+            // Check health status
+            float healthPercent = pawn.health.hediffSet.GetPartHealth(actualBodyPart) / actualBodyPart.def.hitPoints;
+            
+            if (healthPercent < 0.5f)
+            {
+                return Color.red * 0.3f; // Injured parts
+            }
+            else if (healthPercent < 0.8f)
+            {
+                return Color.yellow * 0.3f; // Slightly injured
+            }
+            
+            return Color.green * 0.3f; // Healthy parts
+        }
+
+        private string GetBodyPartTooltip(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.health?.hediffSet == null) return bodyPart.SvgId;
+            
+            var actualBodyPart = FindBodyPartRecord(bodyPart, pawn);
+            if (actualBodyPart == null) return bodyPart.SvgId;
+            
+            string tooltip = actualBodyPart.LabelCap.ToString();
+            
+            if (pawn.health.hediffSet.PartIsMissing(actualBodyPart))
+            {
+                tooltip += " (Missing)";
+            }
+            else
+            {
+                float healthPercent = pawn.health.hediffSet.GetPartHealth(actualBodyPart) / actualBodyPart.def.hitPoints;
+                tooltip += $" ({healthPercent:P0} health)";
+            }
+            
+            return tooltip;
+        }
+
+        private BodyPartRecord FindBodyPartRecord(BodyPartRegion bodyPart, Pawn pawn)
+        {
+            if (pawn?.RaceProps?.body?.AllParts == null) return null;
+            
+            // Handle special cases for body part matching
+            if (bodyPart.Index >= 0)
+            {
+                // For paired parts, get all matching parts
+                var parts = pawn.RaceProps.body.AllParts
+                    .Where(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
+                // Debug: Let's try different approaches to match left/right
+                if (bodyPart.SvgId.Contains("left"))
+                {
+                    // Try multiple ways to find the left part
+                    var leftPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("left") == true) ??
+                                  parts.FirstOrDefault(p => p.Label.ToLower().Contains("left")) ??
+                                  parts.FirstOrDefault(p => p.def.label.ToLower().Contains("left"));
+                    
+                    if (leftPart != null) return leftPart;
+                    
+                    // If no explicit left found, try first part (index 0)
+                    return parts.OrderBy(p => p.def.index).FirstOrDefault();
+                }
+                else if (bodyPart.SvgId.Contains("right"))
+                {
+                    // Try multiple ways to find the right part
+                    var rightPart = parts.FirstOrDefault(p => p.customLabel?.ToLower().Contains("right") == true) ??
+                                   parts.FirstOrDefault(p => p.Label.ToLower().Contains("right")) ??
+                                   parts.FirstOrDefault(p => p.def.label.ToLower().Contains("right"));
+                    
+                    if (rightPart != null) return rightPart;
+                    
+                    // If no explicit right found, try second part (index 1)
+                    var orderedParts = parts.OrderBy(p => p.def.index).ToList();
+                    return orderedParts.Count > 1 ? orderedParts[1] : orderedParts.LastOrDefault();
+                }
+                
+                // Fallback to index-based matching for non-left/right parts
+                var sortedParts = parts.OrderBy(p => p.def.index).ToList();
+                if (bodyPart.Index < sortedParts.Count)
+                {
+                    return sortedParts[bodyPart.Index];
+                }
+            }
+            else
+            {
+                // For single parts, find by name
+                return pawn.RaceProps.body.AllParts
+                    .FirstOrDefault(p => p.def.defName.Equals(bodyPart.BodyPartDefName, StringComparison.OrdinalIgnoreCase));
+            }
+            
+            return null;
+        }
     }
 
     public class SurgeryPresetItem
