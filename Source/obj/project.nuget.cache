@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "0Jv9OxP/Ec/JlkyVlesS5dDuXq9FOLIZObqzGLCEI/fvlgJerl+V9mEFdt5lTTco4Z50xKOar/N8N+yVqS2USw==",
+  "dgSpecHash": "vaolEHZutNs=",
   "success": true,
-  "projectFilePath": "C:\\Users\\andre\\Local Repos\\corvus-surgery-ui\\Source\\CorvusSurgeryUI.csproj",
+  "projectFilePath": "D:\\local-repos\\corvus-surgery-ui\\Source\\CorvusSurgeryUI.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\andre\\.nuget\\packages\\krafs.rimworld.ref\\1.5.4104\\krafs.rimworld.ref.1.5.4104.nupkg.sha512",
     "C:\\Users\\andre\\.nuget\\packages\\lib.harmony\\2.2.2\\lib.harmony.2.2.2.nupkg.sha512",
