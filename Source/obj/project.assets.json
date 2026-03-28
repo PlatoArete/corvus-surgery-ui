@@ -697,11 +697,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\andre\\Local Repos\\corvus-surgery-ui\\Source\\CorvusSurgeryUI.csproj",
+      "projectUniqueName": "D:\\local-repos\\corvus-surgery-ui\\Source\\CorvusSurgeryUI.csproj",
       "projectName": "CorvusSurgeryUI",
-      "projectPath": "C:\\Users\\andre\\Local Repos\\corvus-surgery-ui\\Source\\CorvusSurgeryUI.csproj",
+      "projectPath": "D:\\local-repos\\corvus-surgery-ui\\Source\\CorvusSurgeryUI.csproj",
       "packagesPath": "C:\\Users\\andre\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\andre\\Local Repos\\corvus-surgery-ui\\Source\\obj\\",
+      "outputPath": "D:\\local-repos\\corvus-surgery-ui\\Source\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\andre\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -752,7 +752,7 @@
             "version": "[13.0.3, )"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.204\\RuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.415\\RuntimeIdentifierGraph.json"
       }
     }
   }
