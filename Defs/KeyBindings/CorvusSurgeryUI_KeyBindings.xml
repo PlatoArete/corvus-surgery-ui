@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <KeyBindingCategoryDef>
+    <defName>CorvusSurgeryUI</defName>
+    <label>Corvus Surgery UI</label>
+    <description>Controls for opening and using the Corvus Surgery UI.</description>
+    <isGameUniversal>true</isGameUniversal>
+    <checkForConflicts>
+      <li>Development</li>
+      <li>GameMapCamera</li>
+      <li>Game</li>
+      <li>MainTabs</li>
+      <li>SelectionMisc</li>
+    </checkForConflicts>
+  </KeyBindingCategoryDef>
+
+  <KeyBindingDef>
+    <defName>CorvusSurgeryUI_OpenPlanner</defName>
+    <label>open surgery planner</label>
+    <category>CorvusSurgeryUI</category>
+    <defaultKeyCodeA>H</defaultKeyCodeA>
+  </KeyBindingDef>
+</Defs>

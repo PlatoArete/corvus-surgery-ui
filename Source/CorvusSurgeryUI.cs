@@ -435,7 +435,7 @@ namespace CorvusSurgeryUI
                 catch (Exception ex)
                 {
                     Log.Error($"Corvus Surgery UI: Failed to export preset: {ex}");
-                    Messages.Message("Failed to export preset.", MessageTypeDefOf.RejectInput);
+                    Messages.Message("CorvusSurgeryUI.ExportFailed".Translate(), MessageTypeDefOf.RejectInput);
                 }
             }
         }
@@ -474,7 +474,7 @@ namespace CorvusSurgeryUI
             catch (Exception ex)
             {
                 Log.Error($"Corvus Surgery UI: Failed to import preset: {ex}");
-                Messages.Message("Failed to import preset. Please check file format.", MessageTypeDefOf.RejectInput);
+                Messages.Message("CorvusSurgeryUI.ImportFailedCheckFormat".Translate(), MessageTypeDefOf.RejectInput);
             }
         }
 
@@ -616,6 +616,19 @@ namespace CorvusSurgeryUI
             settings.Write();
         }
 
+        public override void DoSettingsWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Small;
+            var firstLineRect = new Rect(inRect.x, inRect.y, inRect.width, 60f);
+            Widgets.Label(firstLineRect, "CorvusSurgeryUI.Settings.KeyboardInfo1".Translate());
+
+            var separatorRect = new Rect(inRect.x, firstLineRect.yMax + 5f, inRect.width, 5f);
+            Widgets.DrawLineHorizontal(separatorRect.x, separatorRect.y, separatorRect.width);
+
+            var secondLineRect = new Rect(inRect.x, separatorRect.yMax + 10f, inRect.width, 60f);
+            Widgets.Label(secondLineRect, "CorvusSurgeryUI.Settings.KeyboardInfo2".Translate());
+        }
+
         public override string SettingsCategory()
         {
             return "Corvus Surgery UI";
@@ -666,6 +679,7 @@ namespace CorvusSurgeryUI
     [HarmonyPatch(typeof(MainButtonsRoot), "MainButtonsOnGUI")]
     public static class MainButtonsRoot_MainButtonsOnGUI_Patch
     {
+        private const string OpenPlannerKeyBindingDefName = "CorvusSurgeryUI_OpenPlanner";
         private static bool keyHandled = false;
 
         [HarmonyPostfix]
@@ -682,55 +696,32 @@ namespace CorvusSurgeryUI
                 // Only proceed if we haven't handled the key this frame
                 if (keyHandled) return;
 
-                // Check for O key press
-                if (Event.current != null && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.O)
+                var openPlannerKeyBinding = DefDatabase<KeyBindingDef>.GetNamedSilentFail(OpenPlannerKeyBindingDefName);
+                if (openPlannerKeyBinding == null)
                 {
-                    Log.Message("Corvus Surgery UI: O key detected");
+                    return;
+                }
 
-                    // Don't trigger if we're in text input
-                    if (KeyBindingDefOf.Cancel.IsDownEvent)
+                // Respect the configured RimWorld keybinding instead of hardcoding a key.
+                if (Event.current != null && Event.current.type == EventType.KeyDown && openPlannerKeyBinding.KeyDownEvent)
+                {
+                    // Don't trigger while a text field has focus.
+                    if (!GUI.GetNameOfFocusedControl().NullOrEmpty())
                     {
-                        Log.Message("Corvus Surgery UI: Cancel key down, ignoring");
                         return;
                     }
 
-                    // Get the target pawn
-                    var selectedPawn = Find.Selector.SelectedPawns.FirstOrDefault();
-                    if (selectedPawn == null)
+                    if (TryGetSelectedPawnForPlanner(out var selectedPawn))
                     {
-                        // Try single selected thing
-                        if (Find.Selector.SingleSelectedThing is Pawn pawn)
+                        if (TryOpenPlanner(selectedPawn, selectedPawn))
                         {
-                            selectedPawn = pawn;
+                            Event.current.Use();
+                            keyHandled = true;
                         }
-                    }
-
-                    // If no pawn selected, use first colonist
-                    if (selectedPawn == null)
-                    {
-                        selectedPawn = Find.ColonistBar.GetColonistsInOrder().FirstOrDefault();
-                    }
-
-                    if (selectedPawn != null)
-                    {
-                        // Check if pawn can have surgery
-                        bool canHaveSurgery = selectedPawn.RaceProps.Humanlike || (selectedPawn.RaceProps.Animal && selectedPawn.health?.hediffSet != null);
-                        if (!canHaveSurgery)
-                        {
-                            Messages.Message("Selected pawn cannot have surgery.", MessageTypeDefOf.RejectInput);
-                            return;
-                        }
-
-                        // Just open the planner - RimWorld will handle facility requirements
-                        Log.Message($"Corvus Surgery UI: Opening planner for {selectedPawn.LabelShort}");
-                        var dialog = new Dialog_CorvusSurgeryPlanner(selectedPawn, selectedPawn);
-                        Find.WindowStack.Add(dialog);
-                        Event.current.Use();
-                        keyHandled = true;
                     }
                     else
                     {
-                        Messages.Message("No colonist available for surgery planning.", MessageTypeDefOf.RejectInput);
+                        Messages.Message("CorvusSurgeryUI.NoColonistAvailable".Translate(), MessageTypeDefOf.RejectInput);
                     }
                 }
             }
@@ -738,6 +729,40 @@ namespace CorvusSurgeryUI
             {
                 Log.Error($"Corvus Surgery UI: Error in keyboard shortcut patch: {ex}");
             }
+        }
+
+        private static bool TryGetSelectedPawnForPlanner(out Pawn selectedPawn)
+        {
+            selectedPawn = Find.Selector.SelectedPawns.FirstOrDefault();
+            if (selectedPawn == null && Find.Selector.SingleSelectedThing is Pawn pawn)
+            {
+                selectedPawn = pawn;
+            }
+
+            if (selectedPawn == null)
+            {
+                selectedPawn = Find.ColonistBar.GetColonistsInOrder().FirstOrDefault();
+            }
+
+            return selectedPawn != null;
+        }
+
+        private static bool TryOpenPlanner(Pawn pawn, Thing thingForMedBills)
+        {
+            if (pawn == null || thingForMedBills == null)
+            {
+                return false;
+            }
+
+            bool canHaveSurgery = pawn.RaceProps.Humanlike || (pawn.RaceProps.Animal && pawn.health?.hediffSet != null);
+            if (!canHaveSurgery)
+            {
+                Messages.Message("CorvusSurgeryUI.CannotHaveSurgery".Translate(), MessageTypeDefOf.RejectInput);
+                return false;
+            }
+
+            Find.WindowStack.Add(new Dialog_CorvusSurgeryPlanner(pawn, thingForMedBills));
+            return true;
         }
     }
 
@@ -816,9 +841,9 @@ namespace CorvusSurgeryUI
             // Initialize tabs
             tabs = new List<TabRecord>
             {
-                new TabRecord("Overview", () => { selectedTabIndex = 0; }, () => selectedTabIndex == 0),
-                new TabRecord("Visual Planner", () => { selectedTabIndex = 1; }, () => selectedTabIndex == 1),
-                new TabRecord("Presets", () => { selectedTabIndex = 2; }, () => selectedTabIndex == 2)
+                new TabRecord("CorvusSurgeryUI.Tab.Overview".Translate(), () => { selectedTabIndex = 0; }, () => selectedTabIndex == 0),
+                new TabRecord("CorvusSurgeryUI.Tab.VisualPlanner".Translate(), () => { selectedTabIndex = 1; }, () => selectedTabIndex == 1),
+                new TabRecord("CorvusSurgeryUI.Tab.Presets".Translate(), () => { selectedTabIndex = 2; }, () => selectedTabIndex == 2)
             };
             
             // Load last selected tab from settings
@@ -887,12 +912,12 @@ namespace CorvusSurgeryUI
             // Info bar with pawn name and surgery count
             var surgeryCount = filteredSurgeries?.Count ?? 0;
             var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
-            Widgets.Label(infoRect, $"{pawn.LabelShort} ({surgeryCount} surgeries found)");
+            Widgets.Label(infoRect, "CorvusSurgeryUI.PawnSurgeryCount".Translate(pawn.LabelShort, surgeryCount));
             currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
 
             // Search and Queue Non Allowed controls
             var searchLabelRect = new Rect(rect.x, currentY + 2f, 50f, DROPDOWN_HEIGHT);
-            Widgets.Label(searchLabelRect, "Search:");
+            Widgets.Label(searchLabelRect, "CorvusSurgeryUI.Search".Translate());
             
             var searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 200f, DROPDOWN_HEIGHT);
             string newFilter = Widgets.TextField(searchRect, searchFilter);
@@ -1185,18 +1210,18 @@ namespace CorvusSurgeryUI
             var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
             if (pawn != null)
             {
-                Widgets.Label(infoRect, $"{pawn.LabelShort} ({surgeryCount} surgeries found)");
+                Widgets.Label(infoRect, "CorvusSurgeryUI.PawnSurgeryCount".Translate(pawn.LabelShort, surgeryCount));
             }
             else
             {
-                Widgets.Label(infoRect, "No humanoid pawns available");
+                Widgets.Label(infoRect, "CorvusSurgeryUI.NoHumanoidPawns".Translate());
             }
             currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
 
             // Queue Non Allowed control
             var queueToggleRect = new Rect(rect.x, currentY, 200f, DROPDOWN_HEIGHT);
             bool newAllowQueueingDisabled = allowQueueingDisabled;
-            Widgets.CheckboxLabeled(queueToggleRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
+            Widgets.CheckboxLabeled(queueToggleRect, "CorvusSurgeryUI.QueueNonAllowed".Translate(), ref newAllowQueueingDisabled);
             if (newAllowQueueingDisabled != allowQueueingDisabled)
             {
                 allowQueueingDisabled = newAllowQueueingDisabled;
@@ -1253,7 +1278,7 @@ namespace CorvusSurgeryUI
             // Draw header
             Text.Font = GameFont.Medium;
             var headerRect = new Rect(rect.x, rect.y, rect.width, 25f);
-            Widgets.Label(headerRect, "Body Diagram");
+            Widgets.Label(headerRect, "CorvusSurgeryUI.BodyDiagram".Translate());
             Text.Font = GameFont.Small;
             
             // Adjust diagram area
@@ -2194,7 +2219,7 @@ namespace CorvusSurgeryUI
             if (Mouse.IsOver(cardRect))
             {
                 Widgets.DrawHighlight(cardRect);
-                TooltipHandler.TipRegion(cardRect, $"{pawn.LabelShort}\n{status}\nLocation: {location}");
+                TooltipHandler.TipRegion(cardRect, "CorvusSurgeryUI.PawnCardTooltip".Translate(pawn.LabelShort, status, location));
             }
         }
         
@@ -2253,16 +2278,16 @@ namespace CorvusSurgeryUI
             // First row: Labels for dropdowns
             var labelY = currentY;
             var categoryLabelRect = new Rect(rect.x, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
-            Widgets.Label(categoryLabelRect, "Category:");
+            Widgets.Label(categoryLabelRect, "CorvusSurgeryUI.Category".Translate());
 
             var modLabelRect = new Rect(categoryLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
-            Widgets.Label(modLabelRect, "Mod:");
+            Widgets.Label(modLabelRect, "CorvusSurgeryUI.Mod".Translate());
 
             var targetLabelRect = new Rect(modLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
-            Widgets.Label(targetLabelRect, "Target:");
+            Widgets.Label(targetLabelRect, "CorvusSurgeryUI.Target".Translate());
 
             var pawnLabelRect = new Rect(targetLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
-            Widgets.Label(pawnLabelRect, "Pawn:");
+            Widgets.Label(pawnLabelRect, "CorvusSurgeryUI.Pawn".Translate());
 
             // Second row: Dropdowns (reduced spacing)
             currentY += LABEL_HEIGHT + 2f; // Minimal spacing between label and dropdown
@@ -2321,7 +2346,7 @@ namespace CorvusSurgeryUI
             // Quick filter buttons on the right
             float rightEdge = rect.xMax;
             var implantsRect = new Rect(rightEdge - 80f, dropdownY, 80f, DROPDOWN_HEIGHT);
-            if (Widgets.ButtonText(implantsRect, "Implants"))
+            if (Widgets.ButtonText(implantsRect, "CorvusSurgeryUI.Implants".Translate()))
             {
                 selectedCategory = SurgeryCategory.Implants;
                 ApplyFilters();
@@ -2344,7 +2369,7 @@ namespace CorvusSurgeryUI
             }
 
             var clearRect = new Rect(availableRect.x - 90f, dropdownY, 80f, DROPDOWN_HEIGHT);
-            if (Widgets.ButtonText(clearRect, "Clear All"))
+            if (Widgets.ButtonText(clearRect, "CorvusSurgeryUI.ClearAll".Translate()))
             {
                 ClearFilters();
             }
@@ -2548,7 +2573,7 @@ namespace CorvusSurgeryUI
             {
                 Rect bodyPartRect = new Rect(nameRect.x, nameRect.yMax + 2f, leftColumnWidth - 10f, 22f);
                 GUI.color = Color.gray;
-                Widgets.Label(bodyPartRect, $"Target: {surgery.BodyPart.LabelCap}");
+                Widgets.Label(bodyPartRect, "CorvusSurgeryUI.TargetBodyPart".Translate(surgery.BodyPart.LabelCap));
                 GUI.color = Color.white;
             }
 
@@ -2570,7 +2595,7 @@ namespace CorvusSurgeryUI
             
             Rect categoryRect = new Rect(middleColumnX, rect.y + 5f, middleColumnWidth, 20f);
             GUI.color = GetCategoryColor(surgery.Category);
-            Widgets.Label(categoryRect, surgery.Category.ToString());
+            Widgets.Label(categoryRect, ("CorvusSurgeryUI.Category." + surgery.Category.ToString()).Translate());
             GUI.color = Color.white;
 
             Rect reqRect = new Rect(middleColumnX, categoryRect.yMax + 2f, middleColumnWidth, rect.height - categoryRect.height - 10f);
@@ -2894,24 +2919,25 @@ namespace CorvusSurgeryUI
 
         private (string, Color) GetImplantWarning(RecipeDef recipe, BodyPartRecord part)
         {
-            // Check if this would replace an existing implant
-            if (recipe.addsHediff == null || part == null) return ("", Color.white);
-            
-            var existingImplantHediff = pawn.health.hediffSet.hediffs
-                .FirstOrDefault(h => h.Part == part && h.def.isBad == false && h.def.countsAsAddedPartOrImplant);
-            
-            if (existingImplantHediff == null)
+            if (part == null) return ("", Color.white);
+
+            var replacementHediff = GetReplacementTargetHediff(recipe, part);
+            if (replacementHediff == null)
             {
                 return ("", Color.white);
             }
 
-            var newHediffDef = recipe.addsHediff;
-            var oldHediffDef = existingImplantHediff.def;
+            var newHediffDef = recipe.addsHediff ?? recipe.changesHediffLevel;
+            var oldHediffDef = replacementHediff.def;
             
             var warningText = $"Replaces {oldHediffDef.label}";
             var warningColor = Color.yellow; // Default
 
-            // Compare part efficiency first, then market value
+            if (newHediffDef == null)
+            {
+                return (warningText, warningColor);
+            }
+
             bool newHasEff = newHediffDef.addedPartProps != null && newHediffDef.addedPartProps.partEfficiency > 0;
             bool oldHasEff = oldHediffDef.addedPartProps != null && oldHediffDef.addedPartProps.partEfficiency > 0;
 
@@ -2935,6 +2961,52 @@ namespace CorvusSurgeryUI
             }
             
             return (warningText, warningColor);
+        }
+
+        private Hediff GetReplacementTargetHediff(RecipeDef recipe, BodyPartRecord part)
+        {
+            if (recipe == null || part == null)
+            {
+                return null;
+            }
+
+            var partHediffs = pawn.health.hediffSet.hediffs
+                .Where(h => h.Part == part && h.def.countsAsAddedPartOrImplant)
+                .ToList();
+
+            if (!partHediffs.Any())
+            {
+                return null;
+            }
+
+            if (recipe.removesHediff != null)
+            {
+                return partHediffs.FirstOrDefault(h => h.def == recipe.removesHediff);
+            }
+
+            if (recipe.changesHediffLevel != null)
+            {
+                return partHediffs.FirstOrDefault(h => h.def == recipe.changesHediffLevel);
+            }
+
+            if (recipe.addsHediff == null)
+            {
+                return null;
+            }
+
+            // Vanilla implant recipes disallow incompatible hediff tags on the same part.
+            if (recipe.workerClass == typeof(Recipe_InstallImplant))
+            {
+                return partHediffs.FirstOrDefault(h => h.def == recipe.addsHediff || !recipe.CompatibleWithHediff(h.def));
+            }
+
+            // Artificial body part installs replace the directly added part already attached to the target record.
+            if (recipe.workerClass == typeof(Recipe_InstallArtificialBodyPart))
+            {
+                return pawn.health.hediffSet.GetDirectlyAddedPartFor(part);
+            }
+
+            return null;
         }
 
         private string GetDetailedTooltip(RecipeDef recipe, BodyPartRecord part)
@@ -3038,20 +3110,20 @@ namespace CorvusSurgeryUI
             // Section header
             Text.Font = GameFont.Medium;
             var headerRect = new Rect(rect.x, queueStartY, rect.width - 190f, 25f); // Increased from 160f to accommodate wider buttons
-            Widgets.Label(headerRect, $"Surgery Queue ({queuedBills.Count} bills)");
+            Widgets.Label(headerRect, "CorvusSurgeryUI.SurgeryQueue".Translate(queuedBills.Count));
             Text.Font = GameFont.Small;
             
             // Bulk action buttons
             if (queuedBills.Count > 0)
             {
                 var suspendAllRect = new Rect(rect.xMax - 185f, queueStartY, 85f, 20f); // Increased width from 70f to 85f
-                if (Widgets.ButtonText(suspendAllRect, "Suspend All"))
+                if (Widgets.ButtonText(suspendAllRect, "CorvusSurgeryUI.SuspendAll".Translate()))
                 {
                     SuspendAllBills();
                 }
                 
                 var activateAllRect = new Rect(rect.xMax - 95f, queueStartY, 90f, 20f); // Increased width from 75f to 90f
-                if (Widgets.ButtonText(activateAllRect, "Activate All"))
+                if (Widgets.ButtonText(activateAllRect, "CorvusSurgeryUI.ActivateAll".Translate()))
                 {
                     ActivateAllBills();
                 }
@@ -3066,7 +3138,7 @@ namespace CorvusSurgeryUI
             {
                 var noQueueRect = new Rect(queueRect.x + 10f, queueRect.y + 10f, queueRect.width - 20f, 30f);
                 GUI.color = Color.gray;
-                Widgets.Label(noQueueRect, "No surgeries queued. Click 'Queue' on surgeries below to add them.");
+                Widgets.Label(noQueueRect, "CorvusSurgeryUI.NoSurgeriesQueued".Translate());
                 GUI.color = Color.white;
                 return;
             }
@@ -3133,7 +3205,7 @@ namespace CorvusSurgeryUI
         {
             // Save Preset button
             var saveButtonRect = new Rect(rect.x, rect.y, 100f, rect.height);
-            if (Widgets.ButtonText(saveButtonRect, "Save Preset"))
+            if (Widgets.ButtonText(saveButtonRect, "CorvusSurgeryUI.SavePreset".Translate()))
             {
                 ShowSavePresetDialog();
             }
@@ -3169,7 +3241,7 @@ namespace CorvusSurgeryUI
             
             // Single Import button
             var importButtonRect = new Rect(dropdownRect.xMax + (selectedPreset != "(none)" ? 95f : 15f), rect.y, 80f, rect.height);
-            if (Widgets.ButtonText(importButtonRect, "Import"))
+            if (Widgets.ButtonText(importButtonRect, "CorvusSurgeryUI.Import".Translate()))
             {
                 ShowConsolidatedImportDialog();
             }
@@ -3178,7 +3250,7 @@ namespace CorvusSurgeryUI
             if (selectedPreset != "(none)")
             {
                 var exportButtonRect = new Rect(importButtonRect.xMax + 10f, rect.y, 60f, rect.height);
-                if (Widgets.ButtonText(exportButtonRect, "Export"))
+                if (Widgets.ButtonText(exportButtonRect, "CorvusSurgeryUI.Export".Translate()))
                 {
                     ShowExportDialog();
                 }
@@ -3277,7 +3349,7 @@ namespace CorvusSurgeryUI
             
             // Remove button
             var removeButtonRect = new Rect(billRect.xMax - 80f, billRect.y + 3f, 75f, billRect.height - 6f);
-            if (Widgets.ButtonText(removeButtonRect, "Remove"))
+            if (Widgets.ButtonText(removeButtonRect, "CorvusSurgeryUI.Remove".Translate()))
             {
                 RemoveBill(index);
             }
@@ -3562,7 +3634,7 @@ namespace CorvusSurgeryUI
         {
             if (queuedBills.Count == 0)
             {
-                Messages.Message("No surgeries to save in preset.", MessageTypeDefOf.RejectInput);
+                Messages.Message("CorvusSurgeryUI.NoSurgeriesToSave".Translate(), MessageTypeDefOf.RejectInput);
                 return;
             }
             
@@ -3627,7 +3699,7 @@ namespace CorvusSurgeryUI
             catch (Exception ex)
             {
                 Log.Error($"Corvus Surgery UI: Error saving preset '{name}': {ex}");
-                Messages.Message("Error saving preset.", MessageTypeDefOf.RejectInput);
+                Messages.Message("CorvusSurgeryUI.ErrorSavingPreset".Translate(), MessageTypeDefOf.RejectInput);
             }
         }
 
@@ -3648,7 +3720,7 @@ namespace CorvusSurgeryUI
             catch (Exception ex)
             {
                 Log.Error($"Corvus Surgery UI: Error loading preset '{name}': {ex}");
-                Messages.Message("Error loading preset.", MessageTypeDefOf.RejectInput);
+                Messages.Message("CorvusSurgeryUI.ErrorLoadingPreset".Translate(), MessageTypeDefOf.RejectInput);
             }
         }
 
@@ -4042,11 +4114,11 @@ namespace CorvusSurgeryUI
         {
             Text.Font = GameFont.Medium;
             var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "Save Surgery Preset");
+            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.SavePresetTitle".Translate());
             Text.Font = GameFont.Small;
 
             var labelRect = new Rect(0f, 40f, inRect.width, 25f);
-            Widgets.Label(labelRect, "Enter preset name:");
+            Widgets.Label(labelRect, "CorvusSurgeryUI.EnterPresetName".Translate());
 
             var textFieldRect = new Rect(0f, 70f, inRect.width, 30f);
             presetName = Widgets.TextField(textFieldRect, presetName);
@@ -4059,13 +4131,13 @@ namespace CorvusSurgeryUI
             var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
 
             var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
             {
                 Close();
             }
 
             var confirmRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(confirmRect, "Save") || (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return))
+            if (Widgets.ButtonText(confirmRect, "CorvusSurgeryUI.Save".Translate()) || (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return))
             {
                 if (!presetName.NullOrEmpty())
                 {
@@ -4095,7 +4167,7 @@ namespace CorvusSurgeryUI
         {
             Text.Font = GameFont.Medium;
             var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "Import Presets from Other Saves");
+            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ImportFromSavesTitle".Translate());
             Text.Font = GameFont.Small;
 
             var currentSaveId = SurgeryPresetManager.Instance.GetCurrentSaveIdentifier();
@@ -4109,11 +4181,11 @@ namespace CorvusSurgeryUI
             {
                 if (saveGroup.Key == currentSaveId) continue; // Skip current save
 
-                var saveName = saveGroup.Value.FirstOrDefault()?.SaveDisplayName ?? "Unknown Save";
+                var saveName = saveGroup.Value.FirstOrDefault()?.SaveDisplayName ?? "CorvusSurgeryUI.UnknownSave".Translate().ToString();
                 var headerRect = new Rect(0f, y, viewRect.width, 30f);
                 
                 Text.Font = GameFont.Medium;
-                Widgets.Label(headerRect, $"{saveName} ({saveGroup.Value.Count} presets)");
+                Widgets.Label(headerRect, "CorvusSurgeryUI.SavePresetCount".Translate(saveName, saveGroup.Value.Count));
                 Text.Font = GameFont.Small;
                 y += 35f;
 
@@ -4122,14 +4194,14 @@ namespace CorvusSurgeryUI
                     var presetRect = new Rect(20f, y, viewRect.width - 40f, 25f);
                     
                     string presetLabel = preset.IsValid 
-                        ? $"{preset.Name} ({preset.Items.Count} surgeries)"
-                        : $"❌ {preset.Name} ({preset.Items.Count} surgeries - may have issues)";
+                        ? "CorvusSurgeryUI.PresetListLabel".Translate(preset.Name, preset.Items.Count).ToString()
+                        : "CorvusSurgeryUI.PresetListLabelInvalid".Translate(preset.Name, preset.Items.Count).ToString();
                     
                     var labelRect = new Rect(presetRect.x, presetRect.y, presetRect.width - 100f, presetRect.height);
                     Widgets.Label(labelRect, presetLabel);
                     
                     var importButtonRect = new Rect(presetRect.xMax - 90f, presetRect.y, 80f, 20f);
-                    if (Widgets.ButtonText(importButtonRect, "Import"))
+                    if (Widgets.ButtonText(importButtonRect, "CorvusSurgeryUI.Import".Translate()))
                     {
                         SurgeryPresetManager.Instance.ImportPresetFromOtherSave(preset.Name, saveGroup.Key);
                         Close();
@@ -4145,7 +4217,7 @@ namespace CorvusSurgeryUI
 
             // Close button
             var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
-            if (Widgets.ButtonText(closeButtonRect, "Close"))
+            if (Widgets.ButtonText(closeButtonRect, "CorvusSurgeryUI.Close".Translate()))
             {
                 Close();
             }
@@ -4188,24 +4260,24 @@ namespace CorvusSurgeryUI
         {
             Text.Font = GameFont.Medium;
             var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, $"Export Preset: {presetName}");
+            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ExportPresetTitle".Translate(presetName));
             Text.Font = GameFont.Small;
 
             var labelRect = new Rect(0f, 50f, inRect.width, 25f);
-            Widgets.Label(labelRect, "Export to file:");
+            Widgets.Label(labelRect, "CorvusSurgeryUI.Dialog.ExportToFile".Translate());
 
             var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
             filePath = Widgets.TextField(textFieldRect, filePath);
 
             var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
-            if (Widgets.ButtonText(browseButtonRect, "Browse"))
+            if (Widgets.ButtonText(browseButtonRect, "CorvusSurgeryUI.Browse".Translate()))
             {
                 // Note: RimWorld doesn't have a native file browser, so we'll use a simple path
-                Messages.Message("Tip: Modify the path above or use the default location (Desktop)", MessageTypeDefOf.NeutralEvent);
+                Messages.Message("CorvusSurgeryUI.Dialog.ExportBrowseTip".Translate(), MessageTypeDefOf.NeutralEvent);
             }
 
             var infoRect = new Rect(0f, 130f, inRect.width, 80f);
-            Widgets.Label(infoRect, "This will export the preset to a JSON file that can be shared with other players. They can import it using the 'Import File' button.");
+            Widgets.Label(infoRect, "CorvusSurgeryUI.Dialog.ExportInfo".Translate());
 
             // Buttons
             var buttonWidth = 80f;
@@ -4215,13 +4287,13 @@ namespace CorvusSurgeryUI
             var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
 
             var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
             {
                 Close();
             }
 
             var exportRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(exportRect, "Export"))
+            if (Widgets.ButtonText(exportRect, "CorvusSurgeryUI.Export".Translate()))
             {
                 if (!filePath.NullOrEmpty())
                 {
@@ -4250,23 +4322,23 @@ namespace CorvusSurgeryUI
         {
             Text.Font = GameFont.Medium;
             var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "Import Preset from File");
+            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ImportFileTitle".Translate());
             Text.Font = GameFont.Small;
 
             var labelRect = new Rect(0f, 50f, inRect.width, 25f);
-            Widgets.Label(labelRect, "Import from file:");
+            Widgets.Label(labelRect, "CorvusSurgeryUI.Dialog.ImportFromFile".Translate());
 
             var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
             filePath = Widgets.TextField(textFieldRect, filePath);
 
             var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
-            if (Widgets.ButtonText(browseButtonRect, "Browse"))
+            if (Widgets.ButtonText(browseButtonRect, "CorvusSurgeryUI.Browse".Translate()))
             {
-                Messages.Message("Tip: Modify the path above to point to your preset JSON file", MessageTypeDefOf.NeutralEvent);
+                Messages.Message("CorvusSurgeryUI.Dialog.ImportBrowseTip".Translate(), MessageTypeDefOf.NeutralEvent);
             }
 
             var infoRect = new Rect(0f, 130f, inRect.width, 80f);
-            Widgets.Label(infoRect, "Select a JSON preset file exported from this or another player's game. The preset will be imported and tagged for your current save.");
+            Widgets.Label(infoRect, "CorvusSurgeryUI.Dialog.ImportInfo".Translate());
 
             // Buttons
             var buttonWidth = 80f;
@@ -4276,13 +4348,13 @@ namespace CorvusSurgeryUI
             var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
 
             var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
             {
                 Close();
             }
 
             var importRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(importRect, "Import"))
+            if (Widgets.ButtonText(importRect, "CorvusSurgeryUI.Import".Translate()))
             {
                 if (!filePath.NullOrEmpty() && File.Exists(filePath))
                 {
@@ -4291,7 +4363,7 @@ namespace CorvusSurgeryUI
                 }
                 else
                 {
-                    Messages.Message("File not found. Please check the path.", MessageTypeDefOf.RejectInput);
+                    Messages.Message("CorvusSurgeryUI.FileNotFound".Translate(), MessageTypeDefOf.RejectInput);
                 }
             }
         }
@@ -4312,15 +4384,15 @@ namespace CorvusSurgeryUI
         {
             Text.Font = GameFont.Medium;
             var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "Import Presets");
+            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ImportTitle".Translate());
             Text.Font = GameFont.Small;
 
             var infoRect = new Rect(0f, 40f, inRect.width, 40f);
-            Widgets.Label(infoRect, "Choose import source:");
+            Widgets.Label(infoRect, "CorvusSurgeryUI.Dialog.ChooseImportSource".Translate());
 
             // Import from Other Saves button
             var importSavesRect = new Rect(50f, 90f, inRect.width - 100f, 35f);
-            if (Widgets.ButtonText(importSavesRect, "Import from Other Saves"))
+            if (Widgets.ButtonText(importSavesRect, "CorvusSurgeryUI.Dialog.ImportFromSavesButton".Translate()))
             {
                 Close();
                 Find.WindowStack.Add(new Dialog_ImportFromSaves());
@@ -4328,7 +4400,7 @@ namespace CorvusSurgeryUI
 
             // Import from File button  
             var importFileRect = new Rect(50f, 135f, inRect.width - 100f, 35f);
-            if (Widgets.ButtonText(importFileRect, "Import from File"))
+            if (Widgets.ButtonText(importFileRect, "CorvusSurgeryUI.Dialog.ImportFromFileButton".Translate()))
             {
                 Close();
                 Find.WindowStack.Add(new Dialog_ImportPresetFile());
@@ -4336,7 +4408,7 @@ namespace CorvusSurgeryUI
 
             // Close button
             var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
-            if (Widgets.ButtonText(closeButtonRect, "Close"))
+            if (Widgets.ButtonText(closeButtonRect, "CorvusSurgeryUI.Close".Translate()))
             {
                 Close();
             }
@@ -4367,11 +4439,11 @@ namespace CorvusSurgeryUI
         {
             Text.Font = GameFont.Medium;
             var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "Preset Already Exists");
+            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.PresetExistsTitle".Translate());
             Text.Font = GameFont.Small;
 
             var messageRect = new Rect(0f, 40f, inRect.width, 80f);
-            string message = $"A preset named '{presetName}' with the same surgeries already exists in '{existingSaveName}'.\n\nDo you want to overwrite it?";
+            string message = "CorvusSurgeryUI.Dialog.PresetExistsMessage".Translate(presetName, existingSaveName);
             Widgets.Label(messageRect, message);
 
             // Buttons
@@ -4382,14 +4454,14 @@ namespace CorvusSurgeryUI
             var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
 
             var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "Cancel"))
+            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
             {
                 onCancel?.Invoke();
                 Close();
             }
 
             var overwriteRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(overwriteRect, "Overwrite"))
+            if (Widgets.ButtonText(overwriteRect, "CorvusSurgeryUI.Overwrite".Translate()))
             {
                 onConfirm?.Invoke();
                 Close();

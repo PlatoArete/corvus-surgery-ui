@@ -6,3 +6,11 @@ C:\Users\andre\Local Repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.cs
 C:\Users\andre\Local Repos\corvus-surgery-ui\Assemblies\CorvusSurgeryUI.dll
 C:\Users\andre\Local Repos\corvus-surgery-ui\Source\obj\Debug\CorvusSu.6D79D791.Up2Date
 C:\Users\andre\Local Repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.dll
+D:\local-repos\corvus-surgery-ui\Assemblies\CorvusSurgeryUI.dll
+D:\local-repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.csproj.AssemblyReference.cache
+D:\local-repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.GeneratedMSBuildEditorConfig.editorconfig
+D:\local-repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.AssemblyInfoInputs.cache
+D:\local-repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.AssemblyInfo.cs
+D:\local-repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.csproj.CoreCompileInputs.cache
+D:\local-repos\corvus-surgery-ui\Source\obj\Debug\CorvusSu.6D79D791.Up2Date
+D:\local-repos\corvus-surgery-ui\Source\obj\Debug\CorvusSurgeryUI.dll
