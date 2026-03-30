@@ -3,6 +3,9 @@
   <!-- Button Labels -->
   <CorvusSurgeryUI.PlanButton>Plan</CorvusSurgeryUI.PlanButton>
   <CorvusSurgeryUI.PlanButtonTooltip>Open enhanced surgery planning interface with filtering and mod compatibility. Shortcut is configurable in RimWorld keyboard settings.</CorvusSurgeryUI.PlanButtonTooltip>
+  <CorvusSurgeryUI.Close>Close</CorvusSurgeryUI.Close>
+  <CorvusSurgeryUI.Browse>Browse</CorvusSurgeryUI.Browse>
+  <CorvusSurgeryUI.Overwrite>Overwrite</CorvusSurgeryUI.Overwrite>
   
   <!-- Filter Labels -->
   <CorvusSurgeryUI.Search>Search:</CorvusSurgeryUI.Search>
@@ -14,6 +17,10 @@
   <CorvusSurgeryUI.ClearAll>Clear All</CorvusSurgeryUI.ClearAll>
   <CorvusSurgeryUI.Implants>Implants</CorvusSurgeryUI.Implants>
   <CorvusSurgeryUI.QueueNonAllowed>Queue Non Allowed</CorvusSurgeryUI.QueueNonAllowed>
+  <CorvusSurgeryUI.BodyDiagram>Body Diagram</CorvusSurgeryUI.BodyDiagram>
+  <CorvusSurgeryUI.TargetBodyPart>Target: {0}</CorvusSurgeryUI.TargetBodyPart>
+  <CorvusSurgeryUI.PawnSurgeryCount>{0} ({1} surgeries found)</CorvusSurgeryUI.PawnSurgeryCount>
+  <CorvusSurgeryUI.NoHumanoidPawns>No humanoid pawns available</CorvusSurgeryUI.NoHumanoidPawns>
   
   <!-- Surgery Categories -->
   <CorvusSurgeryUI.Category.Medical>Medical</CorvusSurgeryUI.Category.Medical>
@@ -49,6 +56,17 @@
   <CorvusSurgeryUI.EnterPresetName>Enter preset name:</CorvusSurgeryUI.EnterPresetName>
   <CorvusSurgeryUI.Cancel>Cancel</CorvusSurgeryUI.Cancel>
   <CorvusSurgeryUI.Save>Save</CorvusSurgeryUI.Save>
+  <CorvusSurgeryUI.NoSurgeriesToSave>No surgeries to save in preset.</CorvusSurgeryUI.NoSurgeriesToSave>
+  <CorvusSurgeryUI.ErrorSavingPreset>Error saving preset.</CorvusSurgeryUI.ErrorSavingPreset>
+  <CorvusSurgeryUI.ErrorLoadingPreset>Error loading preset.</CorvusSurgeryUI.ErrorLoadingPreset>
+  <CorvusSurgeryUI.UnknownSave>Unknown Save</CorvusSurgeryUI.UnknownSave>
+  <CorvusSurgeryUI.FileNotFound>File not found. Please check the path.</CorvusSurgeryUI.FileNotFound>
+  <CorvusSurgeryUI.ExportFailed>Failed to export preset.</CorvusSurgeryUI.ExportFailed>
+  <CorvusSurgeryUI.ImportFailedCheckFormat>Failed to import preset. Please check file format.</CorvusSurgeryUI.ImportFailedCheckFormat>
+  <CorvusSurgeryUI.PawnCardTooltip>{0}\n{1}\nLocation: {2}</CorvusSurgeryUI.PawnCardTooltip>
+  <CorvusSurgeryUI.SavePresetCount>{0} ({1} presets)</CorvusSurgeryUI.SavePresetCount>
+  <CorvusSurgeryUI.PresetListLabel>{0} ({1} surgeries)</CorvusSurgeryUI.PresetListLabel>
+  <CorvusSurgeryUI.PresetListLabelInvalid>❌ {0} ({1} surgeries - may have issues)</CorvusSurgeryUI.PresetListLabelInvalid>
   
   <!-- Presets Tab -->
   <CorvusSurgeryUI.SurgeryPresets>Surgery Presets - {0} eligible pawns</CorvusSurgeryUI.SurgeryPresets>
@@ -83,6 +101,8 @@
   <CorvusSurgeryUI.NoValidPawns>No other valid pawns</CorvusSurgeryUI.NoValidPawns>
   <CorvusSurgeryUI.CannotHaveSurgery>Selected pawn cannot have surgery.</CorvusSurgeryUI.CannotHaveSurgery>
   <CorvusSurgeryUI.NoColonistAvailable>No colonist available for surgery planning.</CorvusSurgeryUI.NoColonistAvailable>
+  <CorvusSurgeryUI.Settings.KeyboardInfo1>Keyboard shortcut settings for Corvus Surgery UI are configured in RimWorld's Keyboard configuration menu.</CorvusSurgeryUI.Settings.KeyboardInfo1>
+  <CorvusSurgeryUI.Settings.KeyboardInfo2>Look for the 'Corvus Surgery UI' category and rebind 'open surgery planner' there.</CorvusSurgeryUI.Settings.KeyboardInfo2>
   
   <!-- Requirements -->
   <CorvusSurgeryUI.NoRequirements>No requirements</CorvusSurgeryUI.NoRequirements>
@@ -95,4 +115,27 @@
   <CorvusSurgeryUI.ShowAvailableOnly>Available Only</CorvusSurgeryUI.ShowAvailableOnly>
   <CorvusSurgeryUI.MissingItem>Missing Item</CorvusSurgeryUI.MissingItem>
   <CorvusSurgeryUI.MissingSkill>Missing Skill</CorvusSurgeryUI.MissingSkill>
+
+  <!-- Tabs -->
+  <CorvusSurgeryUI.Tab.Overview>Overview</CorvusSurgeryUI.Tab.Overview>
+  <CorvusSurgeryUI.Tab.VisualPlanner>Visual Planner</CorvusSurgeryUI.Tab.VisualPlanner>
+  <CorvusSurgeryUI.Tab.Presets>Presets</CorvusSurgeryUI.Tab.Presets>
+
+  <!-- Dialogs -->
+  <CorvusSurgeryUI.Dialog.SavePresetTitle>Save Surgery Preset</CorvusSurgeryUI.Dialog.SavePresetTitle>
+  <CorvusSurgeryUI.Dialog.ImportFromSavesTitle>Import Presets from Other Saves</CorvusSurgeryUI.Dialog.ImportFromSavesTitle>
+  <CorvusSurgeryUI.Dialog.ExportPresetTitle>Export Preset: {0}</CorvusSurgeryUI.Dialog.ExportPresetTitle>
+  <CorvusSurgeryUI.Dialog.ExportToFile>Export to file:</CorvusSurgeryUI.Dialog.ExportToFile>
+  <CorvusSurgeryUI.Dialog.ExportBrowseTip>Tip: Modify the path above or use the default location (Desktop)</CorvusSurgeryUI.Dialog.ExportBrowseTip>
+  <CorvusSurgeryUI.Dialog.ExportInfo>This will export the preset to a JSON file that can be shared with other players. They can import it using the 'Import File' button.</CorvusSurgeryUI.Dialog.ExportInfo>
+  <CorvusSurgeryUI.Dialog.ImportFileTitle>Import Preset from File</CorvusSurgeryUI.Dialog.ImportFileTitle>
+  <CorvusSurgeryUI.Dialog.ImportFromFile>Import from file:</CorvusSurgeryUI.Dialog.ImportFromFile>
+  <CorvusSurgeryUI.Dialog.ImportBrowseTip>Tip: Modify the path above to point to your preset JSON file</CorvusSurgeryUI.Dialog.ImportBrowseTip>
+  <CorvusSurgeryUI.Dialog.ImportInfo>Select a JSON preset file exported from this or another player's game. The preset will be imported and tagged for your current save.</CorvusSurgeryUI.Dialog.ImportInfo>
+  <CorvusSurgeryUI.Dialog.ImportTitle>Import Presets</CorvusSurgeryUI.Dialog.ImportTitle>
+  <CorvusSurgeryUI.Dialog.ChooseImportSource>Choose import source:</CorvusSurgeryUI.Dialog.ChooseImportSource>
+  <CorvusSurgeryUI.Dialog.ImportFromSavesButton>Import from Other Saves</CorvusSurgeryUI.Dialog.ImportFromSavesButton>
+  <CorvusSurgeryUI.Dialog.ImportFromFileButton>Import from File</CorvusSurgeryUI.Dialog.ImportFromFileButton>
+  <CorvusSurgeryUI.Dialog.PresetExistsTitle>Preset Already Exists</CorvusSurgeryUI.Dialog.PresetExistsTitle>
+  <CorvusSurgeryUI.Dialog.PresetExistsMessage>A preset named '{0}' with the same surgeries already exists in '{1}'.\n\nDo you want to overwrite it?</CorvusSurgeryUI.Dialog.PresetExistsMessage>
 </LanguageData> 
