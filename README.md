@@ -2,7 +2,7 @@
 
 The ultimate surgery management interface for RimWorld! This mod revolutionizes medical operations with a powerful 3-tab system featuring comprehensive surgery lists, interactive body diagrams, and customizable presets. Designed for maximum compatibility and ease of use.
 
-Works seamlessly with all mods and DLCs by leveraging RimWorld's internal surgery logic - no patches required!
+Built and maintained for RimWorld 1.6. The mod leverages RimWorld's internal surgery logic for broad compatibility without per-mod patches.
 
 ![Surgery Planner UI](https://i.imgur.com/REPLACE_THIS_WITH_A_REAL_SCREENSHOT.png)  <!-- Replace with an actual screenshot -->
 
@@ -32,7 +32,7 @@ At Corvus Life Sciences, we understand that successful surgery requires more tha
 ## Quick Start
 
 ### Instant Access
-- **Keyboard Shortcut**: Press **'O'** to instantly open the surgery planner
+- **Keyboard Shortcut**: Use the configurable planner shortcut from RimWorld's keyboard settings
 - **Health Tab Button**: New "Plan" button in every pawn's Health tab
 - **Auto-Selection**: Automatically selects your colonist or selected pawn
 
@@ -184,7 +184,7 @@ Generally place after mods that add surgeries. The mod's `loadAfter` configurati
 
 ### Steam Workshop (Recommended)
 1. Subscribe to the mod on Steam Workshop
-2. Activate in RimWorld's mod menu
+2. Activate in RimWorld's mod menu for RimWorld 1.6
 3. Load after surgery-adding mods
 
 ### Manual Installation
@@ -199,7 +199,7 @@ Generally place after mods that add surgeries. The mod's `loadAfter` configurati
 ## Usage Tips
 
 ### Getting Started
-1. **Press 'O'** or click the "Plan" button in any pawn's Health tab
+1. Use your configured planner shortcut or click the "Plan" button in any pawn's Health tab
 2. **Explore the tabs**: Overview for lists, Visual Planner for body diagrams
 3. **Try the filters**: Find exactly what you need quickly
 4. **Use presets**: Save common surgery combinations

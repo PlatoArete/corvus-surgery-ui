@@ -616,6 +616,19 @@ namespace CorvusSurgeryUI
             settings.Write();
         }
 
+        public override void DoSettingsWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Small;
+            var firstLineRect = new Rect(inRect.x, inRect.y, inRect.width, 60f);
+            Widgets.Label(firstLineRect, "Keyboard shortcut settings for Corvus Surgery UI are configured in RimWorld's Keyboard configuration menu.");
+
+            var separatorRect = new Rect(inRect.x, firstLineRect.yMax + 5f, inRect.width, 5f);
+            Widgets.DrawLineHorizontal(separatorRect.x, separatorRect.y, separatorRect.width);
+
+            var secondLineRect = new Rect(inRect.x, separatorRect.yMax + 10f, inRect.width, 60f);
+            Widgets.Label(secondLineRect, "Look for the 'Corvus Surgery UI' category and rebind 'open surgery planner' there.");
+        }
+
         public override string SettingsCategory()
         {
             return "Corvus Surgery UI";
@@ -666,6 +679,7 @@ namespace CorvusSurgeryUI
     [HarmonyPatch(typeof(MainButtonsRoot), "MainButtonsOnGUI")]
     public static class MainButtonsRoot_MainButtonsOnGUI_Patch
     {
+        private const string OpenPlannerKeyBindingDefName = "CorvusSurgeryUI_OpenPlanner";
         private static bool keyHandled = false;
 
         [HarmonyPostfix]
@@ -682,55 +696,32 @@ namespace CorvusSurgeryUI
                 // Only proceed if we haven't handled the key this frame
                 if (keyHandled) return;
 
-                // Check for O key press
-                if (Event.current != null && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.O)
+                var openPlannerKeyBinding = DefDatabase<KeyBindingDef>.GetNamedSilentFail(OpenPlannerKeyBindingDefName);
+                if (openPlannerKeyBinding == null)
                 {
-                    Log.Message("Corvus Surgery UI: O key detected");
+                    return;
+                }
 
-                    // Don't trigger if we're in text input
-                    if (KeyBindingDefOf.Cancel.IsDownEvent)
+                // Respect the configured RimWorld keybinding instead of hardcoding a key.
+                if (Event.current != null && Event.current.type == EventType.KeyDown && openPlannerKeyBinding.KeyDownEvent)
+                {
+                    // Don't trigger while a text field has focus.
+                    if (!GUI.GetNameOfFocusedControl().NullOrEmpty())
                     {
-                        Log.Message("Corvus Surgery UI: Cancel key down, ignoring");
                         return;
                     }
 
-                    // Get the target pawn
-                    var selectedPawn = Find.Selector.SelectedPawns.FirstOrDefault();
-                    if (selectedPawn == null)
+                    if (TryGetSelectedPawnForPlanner(out var selectedPawn))
                     {
-                        // Try single selected thing
-                        if (Find.Selector.SingleSelectedThing is Pawn pawn)
+                        if (TryOpenPlanner(selectedPawn, selectedPawn))
                         {
-                            selectedPawn = pawn;
+                            Event.current.Use();
+                            keyHandled = true;
                         }
-                    }
-
-                    // If no pawn selected, use first colonist
-                    if (selectedPawn == null)
-                    {
-                        selectedPawn = Find.ColonistBar.GetColonistsInOrder().FirstOrDefault();
-                    }
-
-                    if (selectedPawn != null)
-                    {
-                        // Check if pawn can have surgery
-                        bool canHaveSurgery = selectedPawn.RaceProps.Humanlike || (selectedPawn.RaceProps.Animal && selectedPawn.health?.hediffSet != null);
-                        if (!canHaveSurgery)
-                        {
-                            Messages.Message("Selected pawn cannot have surgery.", MessageTypeDefOf.RejectInput);
-                            return;
-                        }
-
-                        // Just open the planner - RimWorld will handle facility requirements
-                        Log.Message($"Corvus Surgery UI: Opening planner for {selectedPawn.LabelShort}");
-                        var dialog = new Dialog_CorvusSurgeryPlanner(selectedPawn, selectedPawn);
-                        Find.WindowStack.Add(dialog);
-                        Event.current.Use();
-                        keyHandled = true;
                     }
                     else
                     {
-                        Messages.Message("No colonist available for surgery planning.", MessageTypeDefOf.RejectInput);
+                        Messages.Message("CorvusSurgeryUI.NoColonistAvailable".Translate(), MessageTypeDefOf.RejectInput);
                     }
                 }
             }
@@ -738,6 +729,40 @@ namespace CorvusSurgeryUI
             {
                 Log.Error($"Corvus Surgery UI: Error in keyboard shortcut patch: {ex}");
             }
+        }
+
+        private static bool TryGetSelectedPawnForPlanner(out Pawn selectedPawn)
+        {
+            selectedPawn = Find.Selector.SelectedPawns.FirstOrDefault();
+            if (selectedPawn == null && Find.Selector.SingleSelectedThing is Pawn pawn)
+            {
+                selectedPawn = pawn;
+            }
+
+            if (selectedPawn == null)
+            {
+                selectedPawn = Find.ColonistBar.GetColonistsInOrder().FirstOrDefault();
+            }
+
+            return selectedPawn != null;
+        }
+
+        private static bool TryOpenPlanner(Pawn pawn, Thing thingForMedBills)
+        {
+            if (pawn == null || thingForMedBills == null)
+            {
+                return false;
+            }
+
+            bool canHaveSurgery = pawn.RaceProps.Humanlike || (pawn.RaceProps.Animal && pawn.health?.hediffSet != null);
+            if (!canHaveSurgery)
+            {
+                Messages.Message("CorvusSurgeryUI.CannotHaveSurgery".Translate(), MessageTypeDefOf.RejectInput);
+                return false;
+            }
+
+            Find.WindowStack.Add(new Dialog_CorvusSurgeryPlanner(pawn, thingForMedBills));
+            return true;
         }
     }
 
@@ -2894,24 +2919,25 @@ namespace CorvusSurgeryUI
 
         private (string, Color) GetImplantWarning(RecipeDef recipe, BodyPartRecord part)
         {
-            // Check if this would replace an existing implant
-            if (recipe.addsHediff == null || part == null) return ("", Color.white);
-            
-            var existingImplantHediff = pawn.health.hediffSet.hediffs
-                .FirstOrDefault(h => h.Part == part && h.def.isBad == false && h.def.countsAsAddedPartOrImplant);
-            
-            if (existingImplantHediff == null)
+            if (part == null) return ("", Color.white);
+
+            var replacementHediff = GetReplacementTargetHediff(recipe, part);
+            if (replacementHediff == null)
             {
                 return ("", Color.white);
             }
 
-            var newHediffDef = recipe.addsHediff;
-            var oldHediffDef = existingImplantHediff.def;
+            var newHediffDef = recipe.addsHediff ?? recipe.changesHediffLevel;
+            var oldHediffDef = replacementHediff.def;
             
             var warningText = $"Replaces {oldHediffDef.label}";
             var warningColor = Color.yellow; // Default
 
-            // Compare part efficiency first, then market value
+            if (newHediffDef == null)
+            {
+                return (warningText, warningColor);
+            }
+
             bool newHasEff = newHediffDef.addedPartProps != null && newHediffDef.addedPartProps.partEfficiency > 0;
             bool oldHasEff = oldHediffDef.addedPartProps != null && oldHediffDef.addedPartProps.partEfficiency > 0;
 
@@ -2935,6 +2961,52 @@ namespace CorvusSurgeryUI
             }
             
             return (warningText, warningColor);
+        }
+
+        private Hediff GetReplacementTargetHediff(RecipeDef recipe, BodyPartRecord part)
+        {
+            if (recipe == null || part == null)
+            {
+                return null;
+            }
+
+            var partHediffs = pawn.health.hediffSet.hediffs
+                .Where(h => h.Part == part && h.def.countsAsAddedPartOrImplant)
+                .ToList();
+
+            if (!partHediffs.Any())
+            {
+                return null;
+            }
+
+            if (recipe.removesHediff != null)
+            {
+                return partHediffs.FirstOrDefault(h => h.def == recipe.removesHediff);
+            }
+
+            if (recipe.changesHediffLevel != null)
+            {
+                return partHediffs.FirstOrDefault(h => h.def == recipe.changesHediffLevel);
+            }
+
+            if (recipe.addsHediff == null)
+            {
+                return null;
+            }
+
+            // Vanilla implant recipes disallow incompatible hediff tags on the same part.
+            if (recipe.workerClass == typeof(Recipe_InstallImplant))
+            {
+                return partHediffs.FirstOrDefault(h => h.def == recipe.addsHediff || !recipe.CompatibleWithHediff(h.def));
+            }
+
+            // Artificial body part installs replace the directly added part already attached to the target record.
+            if (recipe.workerClass == typeof(Recipe_InstallArtificialBodyPart))
+            {
+                return pawn.health.hediffSet.GetDirectlyAddedPartFor(part);
+            }
+
+            return null;
         }
 
         private string GetDetailedTooltip(RecipeDef recipe, BodyPartRecord part)

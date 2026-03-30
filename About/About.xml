@@ -3,8 +3,6 @@
 	<name>[COG] Corvus Surgery UI</name>
 	<author>PlatoArete</author>
 	<supportedVersions>
-		<li>1.4</li>
-		<li>1.5</li>
 		<li>1.6</li>
 	</supportedVersions>
 	<modDependencies>
@@ -39,7 +37,7 @@ KEY FEATURES:
 • Force Queue System - Queue unavailable surgeries that auto-enable when ready
 • Full Mod Compatibility - Works with any surgery-adding mod
 
-Press 'O' to open the planner instantly! Streamline your medical operations with the most advanced surgery interface on the Rim.</description>
+Use the configurable keyboard shortcut or the Health tab button to open the planner instantly. Streamline your medical operations with the most advanced surgery interface on the Rim.</description>
 	<packageId>corvus.surgery.ui</packageId>
 	<url>https://github.com/PlatoArete/corvus-surgery-ui</url>
 </ModMetaData>

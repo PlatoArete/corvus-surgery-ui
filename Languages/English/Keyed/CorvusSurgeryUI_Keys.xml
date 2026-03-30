@@ -2,7 +2,7 @@
 <LanguageData>
   <!-- Button Labels -->
   <CorvusSurgeryUI.PlanButton>Plan</CorvusSurgeryUI.PlanButton>
-  <CorvusSurgeryUI.PlanButtonTooltip>Open enhanced surgery planning interface with filtering and mod compatibility (or press O)</CorvusSurgeryUI.PlanButtonTooltip>
+  <CorvusSurgeryUI.PlanButtonTooltip>Open enhanced surgery planning interface with filtering and mod compatibility. Shortcut is configurable in RimWorld keyboard settings.</CorvusSurgeryUI.PlanButtonTooltip>
   
   <!-- Filter Labels -->
   <CorvusSurgeryUI.Search>Search:</CorvusSurgeryUI.Search>
