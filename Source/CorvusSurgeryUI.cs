@@ -3028,14 +3028,28 @@ namespace CorvusSurgeryUI
             
             foreach (var recipe in allRecipes)
             {
-                if (!recipeCategoryCache.ContainsKey(recipe))
+                if (recipe == null)
                 {
-                    recipeCategoryCache[recipe] = CategorizeRecipeStatic(recipe);
+                    continue;
                 }
-                
-                if (!nonTargetedCache.ContainsKey(recipe))
+
+                try
                 {
-                    nonTargetedCache[recipe] = IsNonTargetedSurgeryStatic(recipe);
+                    if (!recipeCategoryCache.ContainsKey(recipe))
+                    {
+                        recipeCategoryCache[recipe] = CategorizeRecipeStatic(recipe);
+                    }
+                    
+                    if (!nonTargetedCache.ContainsKey(recipe))
+                    {
+                        nonTargetedCache[recipe] = IsNonTargetedSurgeryStatic(recipe);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"Corvus Surgery UI: Failed to initialize recipe cache for '{recipe.defName ?? "<unnamed recipe>"}': {ex}");
+                    recipeCategoryCache[recipe] = SurgeryCategory.Medical;
+                    nonTargetedCache[recipe] = false;
                 }
             }
             
@@ -3063,11 +3077,15 @@ namespace CorvusSurgeryUI
         
         private static bool IsNonTargetedSurgeryStatic(RecipeDef recipe)
         {
+            if (recipe == null) return false;
+
             // Check if this is a non-targeted surgery (like drug administration)
             if (recipe.targetsBodyPart == false) return true;
-            if (recipe.LabelCap.ToString().ToLower().Contains("administer")) return true;
+
+            string labelText = recipe.label ?? recipe.defName ?? string.Empty;
+            if (labelText.IndexOf("administer", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             if (recipe.workerClass?.Name?.Contains("Administer") == true) return true;
-            if (recipe.LabelCap.ToString().ToLower().Contains("tend")) return true;
+            if (labelText.IndexOf("tend", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             
             return false;
         }
