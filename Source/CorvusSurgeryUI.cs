@@ -4159,7 +4159,7 @@ namespace CorvusSurgeryUI
         {
             this.onConfirm = onConfirm;
             this.forcePause = true;
-            this.doCloseX = true;
+            this.doCloseX = false;
             this.absorbInputAroundWindow = true;
             this.closeOnAccept = false;
         }
@@ -4168,32 +4168,34 @@ namespace CorvusSurgeryUI
 
         public override void DoWindowContents(Rect inRect)
         {
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.SavePresetTitle".Translate());
-            Text.Font = GameFont.Small;
+            CorvusStyle.DrawWindowBackground(inRect);
+            var headerRect = new Rect(inRect.x, inRect.y, inRect.width, 32f);
+            CorvusStyle.DrawWindowHeader(headerRect, "CorvusSurgeryUI.Dialog.SavePresetTitle".Translate(), null);
+            var closeRect = new Rect(headerRect.xMax - 28f, headerRect.y + 5f, 22f, headerRect.height - 10f);
+            if (CorvusStyle.DrawHeaderCloseButton(closeRect))
+            {
+                Close();
+                return;
+            }
 
-            var labelRect = new Rect(0f, 40f, inRect.width, 25f);
-            Widgets.Label(labelRect, "CorvusSurgeryUI.EnterPresetName".Translate());
+            var bodyRect = new Rect(inRect.x + 10f, headerRect.yMax + 10f, inRect.width - 20f, inRect.height - headerRect.height - 20f);
+            CorvusStyle.DrawPanel(bodyRect);
 
-            var textFieldRect = new Rect(0f, 70f, inRect.width, 30f);
-            presetName = Widgets.TextField(textFieldRect, presetName);
+            var labelRect = new Rect(bodyRect.x + 10f, bodyRect.y + 10f, bodyRect.width - 20f, 20f);
+            CorvusStyle.DrawSubtleText(labelRect, "CorvusSurgeryUI.EnterPresetName".Translate());
 
-            // Buttons
-            var buttonWidth = 80f;
-            var buttonHeight = 35f;
-            var spacing = 20f;
-            var totalButtonWidth = (buttonWidth * 2) + spacing;
-            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
+            var textFieldRect = new Rect(bodyRect.x + 10f, labelRect.yMax + 8f, bodyRect.width - 20f, 32f);
+            CorvusStyle.DrawInset(textFieldRect);
+            presetName = Widgets.TextField(textFieldRect.ContractedBy(6f), presetName);
 
-            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
+            var cancelRect = new Rect(bodyRect.x + bodyRect.width - 162f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(cancelRect, "CorvusSurgeryUI.Cancel".Translate().ToString()))
             {
                 Close();
             }
 
-            var confirmRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(confirmRect, "CorvusSurgeryUI.Save".Translate()) || (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return))
+            var confirmRect = new Rect(bodyRect.x + bodyRect.width - 80f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(confirmRect, "CorvusSurgeryUI.Save".Translate().ToString(), true) || (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return))
             {
                 if (!presetName.NullOrEmpty())
                 {
@@ -4212,7 +4214,7 @@ namespace CorvusSurgeryUI
         public Dialog_ImportFromSaves()
         {
             this.forcePause = true;
-            this.doCloseX = true;
+            this.doCloseX = false;
             this.absorbInputAroundWindow = true;
             presetsBySave = SurgeryPresetManager.Instance.GetPresetsBySave();
         }
@@ -4221,13 +4223,24 @@ namespace CorvusSurgeryUI
 
         public override void DoWindowContents(Rect inRect)
         {
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ImportFromSavesTitle".Translate());
-            Text.Font = GameFont.Small;
+            CorvusStyle.DrawWindowBackground(inRect);
+            CorvusStyle.ApplyScrollStyles();
+            var headerRect = new Rect(inRect.x, inRect.y, inRect.width, 32f);
+            CorvusStyle.DrawWindowHeader(headerRect, "CorvusSurgeryUI.Dialog.ImportFromSavesTitle".Translate(), null);
+            var closeRect = new Rect(headerRect.xMax - 28f, headerRect.y + 5f, 22f, headerRect.height - 10f);
+            if (CorvusStyle.DrawHeaderCloseButton(closeRect))
+            {
+                Close();
+                return;
+            }
 
             var currentSaveId = SurgeryPresetManager.Instance.GetCurrentSaveIdentifier();
-            var scrollRect = new Rect(0f, 40f, inRect.width, inRect.height - 80f);
+            var bodyRect = new Rect(inRect.x + 10f, headerRect.yMax + 10f, inRect.width - 20f, inRect.height - headerRect.height - 20f);
+            CorvusStyle.DrawPanel(bodyRect);
+
+            var scrollRect = new Rect(bodyRect.x + 6f, bodyRect.y + 6f, bodyRect.width - 12f, bodyRect.height - 42f);
+            CorvusStyle.DrawInset(scrollRect);
+            scrollRect = scrollRect.ContractedBy(6f);
             var viewRect = new Rect(0f, 0f, scrollRect.width - 20f, CalculateViewHeight());
 
             Widgets.BeginScrollView(scrollRect, ref scrollPosition, viewRect);
@@ -4238,26 +4251,24 @@ namespace CorvusSurgeryUI
                 if (saveGroup.Key == currentSaveId) continue; // Skip current save
 
                 var saveName = saveGroup.Value.FirstOrDefault()?.SaveDisplayName ?? "CorvusSurgeryUI.UnknownSave".Translate().ToString();
-                var headerRect = new Rect(0f, y, viewRect.width, 30f);
-                
-                Text.Font = GameFont.Medium;
-                Widgets.Label(headerRect, "CorvusSurgeryUI.SavePresetCount".Translate(saveName, saveGroup.Value.Count));
-                Text.Font = GameFont.Small;
+                var saveHeaderRect = new Rect(0f, y, viewRect.width, 30f);
+                CorvusStyle.DrawSectionHeader(new Rect(saveHeaderRect.x, saveHeaderRect.y + 4f, saveHeaderRect.width, 18f), "CorvusSurgeryUI.SavePresetCount".Translate(saveName, saveGroup.Value.Count));
                 y += 35f;
 
                 foreach (var preset in saveGroup.Value)
                 {
-                    var presetRect = new Rect(20f, y, viewRect.width - 40f, 25f);
+                    var presetRect = new Rect(8f, y, viewRect.width - 16f, 28f);
+                    CorvusStyle.DrawRow(presetRect, Mouse.IsOver(presetRect));
                     
                     string presetLabel = preset.IsValid 
                         ? "CorvusSurgeryUI.PresetListLabel".Translate(preset.Name, preset.Items.Count).ToString()
                         : "CorvusSurgeryUI.PresetListLabelInvalid".Translate(preset.Name, preset.Items.Count).ToString();
                     
-                    var labelRect = new Rect(presetRect.x, presetRect.y, presetRect.width - 100f, presetRect.height);
-                    Widgets.Label(labelRect, presetLabel);
+                    var labelRect = new Rect(presetRect.x + 8f, presetRect.y + 5f, presetRect.width - 94f, 18f);
+                    CorvusStyle.DrawPrimaryText(labelRect, presetLabel);
                     
-                    var importButtonRect = new Rect(presetRect.xMax - 90f, presetRect.y, 80f, 20f);
-                    if (Widgets.ButtonText(importButtonRect, "CorvusSurgeryUI.Import".Translate()))
+                    var importButtonRect = new Rect(presetRect.xMax - 72f, presetRect.y + 4f, 64f, 20f);
+                    if (CorvusStyle.DrawCompactButton(importButtonRect, "CorvusSurgeryUI.Import".Translate().ToString(), true))
                     {
                         SurgeryPresetManager.Instance.ImportPresetFromOtherSave(preset.Name, saveGroup.Key);
                         Close();
@@ -4271,9 +4282,8 @@ namespace CorvusSurgeryUI
 
             Widgets.EndScrollView();
 
-            // Close button
-            var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
-            if (Widgets.ButtonText(closeButtonRect, "CorvusSurgeryUI.Close".Translate()))
+            var closeButtonRect = new Rect(bodyRect.x + bodyRect.width - 74f, bodyRect.yMax - 28f, 64f, 20f);
+            if (CorvusStyle.DrawCompactButton(closeButtonRect, "CorvusSurgeryUI.Close".Translate().ToString()))
             {
                 Close();
             }
@@ -4305,7 +4315,7 @@ namespace CorvusSurgeryUI
         {
             this.presetName = presetName;
             this.forcePause = true;
-            this.doCloseX = true;
+            this.doCloseX = false;
             this.absorbInputAroundWindow = true;
             this.filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), $"{presetName}_preset.json");
         }
@@ -4314,42 +4324,44 @@ namespace CorvusSurgeryUI
 
         public override void DoWindowContents(Rect inRect)
         {
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ExportPresetTitle".Translate(presetName));
-            Text.Font = GameFont.Small;
-
-            var labelRect = new Rect(0f, 50f, inRect.width, 25f);
-            Widgets.Label(labelRect, "CorvusSurgeryUI.Dialog.ExportToFile".Translate());
-
-            var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
-            filePath = Widgets.TextField(textFieldRect, filePath);
-
-            var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
-            if (Widgets.ButtonText(browseButtonRect, "CorvusSurgeryUI.Browse".Translate()))
+            CorvusStyle.DrawWindowBackground(inRect);
+            var headerRect = new Rect(inRect.x, inRect.y, inRect.width, 32f);
+            CorvusStyle.DrawWindowHeader(headerRect, "CorvusSurgeryUI.Dialog.ExportPresetTitle".Translate(presetName), null);
+            var closeRect = new Rect(headerRect.xMax - 28f, headerRect.y + 5f, 22f, headerRect.height - 10f);
+            if (CorvusStyle.DrawHeaderCloseButton(closeRect))
             {
-                // Note: RimWorld doesn't have a native file browser, so we'll use a simple path
+                Close();
+                return;
+            }
+
+            var bodyRect = new Rect(inRect.x + 10f, headerRect.yMax + 10f, inRect.width - 20f, inRect.height - headerRect.height - 20f);
+            CorvusStyle.DrawPanel(bodyRect);
+
+            var labelRect = new Rect(bodyRect.x + 10f, bodyRect.y + 10f, bodyRect.width - 20f, 20f);
+            CorvusStyle.DrawSubtleText(labelRect, "CorvusSurgeryUI.Dialog.ExportToFile".Translate());
+
+            var textFieldRect = new Rect(bodyRect.x + 10f, labelRect.yMax + 8f, bodyRect.width - 102f, 32f);
+            CorvusStyle.DrawInset(textFieldRect);
+            filePath = Widgets.TextField(textFieldRect.ContractedBy(6f), filePath);
+
+            var browseButtonRect = new Rect(bodyRect.xMax - 82f, textFieldRect.y + 5f, 72f, 22f);
+            if (CorvusStyle.DrawCompactButton(browseButtonRect, "CorvusSurgeryUI.Browse".Translate().ToString()))
+            {
                 Messages.Message("CorvusSurgeryUI.Dialog.ExportBrowseTip".Translate(), MessageTypeDefOf.NeutralEvent);
             }
 
-            var infoRect = new Rect(0f, 130f, inRect.width, 80f);
-            Widgets.Label(infoRect, "CorvusSurgeryUI.Dialog.ExportInfo".Translate());
+            var infoRect = new Rect(bodyRect.x + 10f, textFieldRect.yMax + 12f, bodyRect.width - 20f, 72f);
+            CorvusStyle.DrawInset(infoRect);
+            CorvusStyle.DrawWrappedText(infoRect.ContractedBy(8f), "CorvusSurgeryUI.Dialog.ExportInfo".Translate(), CorvusStyle.TextSecondary, 11);
 
-            // Buttons
-            var buttonWidth = 80f;
-            var buttonHeight = 35f;
-            var spacing = 20f;
-            var totalButtonWidth = (buttonWidth * 2) + spacing;
-            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
-
-            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
+            var cancelRect = new Rect(bodyRect.x + bodyRect.width - 162f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(cancelRect, "CorvusSurgeryUI.Cancel".Translate().ToString()))
             {
                 Close();
             }
 
-            var exportRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(exportRect, "CorvusSurgeryUI.Export".Translate()))
+            var exportRect = new Rect(bodyRect.x + bodyRect.width - 80f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(exportRect, "CorvusSurgeryUI.Export".Translate().ToString(), true))
             {
                 if (!filePath.NullOrEmpty())
                 {
@@ -4367,7 +4379,7 @@ namespace CorvusSurgeryUI
         public Dialog_ImportPresetFile()
         {
             this.forcePause = true;
-            this.doCloseX = true;
+            this.doCloseX = false;
             this.absorbInputAroundWindow = true;
             this.filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "preset.json");
         }
@@ -4376,41 +4388,44 @@ namespace CorvusSurgeryUI
 
         public override void DoWindowContents(Rect inRect)
         {
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ImportFileTitle".Translate());
-            Text.Font = GameFont.Small;
+            CorvusStyle.DrawWindowBackground(inRect);
+            var headerRect = new Rect(inRect.x, inRect.y, inRect.width, 32f);
+            CorvusStyle.DrawWindowHeader(headerRect, "CorvusSurgeryUI.Dialog.ImportFileTitle".Translate(), null);
+            var closeRect = new Rect(headerRect.xMax - 28f, headerRect.y + 5f, 22f, headerRect.height - 10f);
+            if (CorvusStyle.DrawHeaderCloseButton(closeRect))
+            {
+                Close();
+                return;
+            }
 
-            var labelRect = new Rect(0f, 50f, inRect.width, 25f);
-            Widgets.Label(labelRect, "CorvusSurgeryUI.Dialog.ImportFromFile".Translate());
+            var bodyRect = new Rect(inRect.x + 10f, headerRect.yMax + 10f, inRect.width - 20f, inRect.height - headerRect.height - 20f);
+            CorvusStyle.DrawPanel(bodyRect);
 
-            var textFieldRect = new Rect(0f, 80f, inRect.width - 100f, 30f);
-            filePath = Widgets.TextField(textFieldRect, filePath);
+            var labelRect = new Rect(bodyRect.x + 10f, bodyRect.y + 10f, bodyRect.width - 20f, 20f);
+            CorvusStyle.DrawSubtleText(labelRect, "CorvusSurgeryUI.Dialog.ImportFromFile".Translate());
 
-            var browseButtonRect = new Rect(inRect.width - 90f, 80f, 80f, 30f);
-            if (Widgets.ButtonText(browseButtonRect, "CorvusSurgeryUI.Browse".Translate()))
+            var textFieldRect = new Rect(bodyRect.x + 10f, labelRect.yMax + 8f, bodyRect.width - 102f, 32f);
+            CorvusStyle.DrawInset(textFieldRect);
+            filePath = Widgets.TextField(textFieldRect.ContractedBy(6f), filePath);
+
+            var browseButtonRect = new Rect(bodyRect.xMax - 82f, textFieldRect.y + 5f, 72f, 22f);
+            if (CorvusStyle.DrawCompactButton(browseButtonRect, "CorvusSurgeryUI.Browse".Translate().ToString()))
             {
                 Messages.Message("CorvusSurgeryUI.Dialog.ImportBrowseTip".Translate(), MessageTypeDefOf.NeutralEvent);
             }
 
-            var infoRect = new Rect(0f, 130f, inRect.width, 80f);
-            Widgets.Label(infoRect, "CorvusSurgeryUI.Dialog.ImportInfo".Translate());
+            var infoRect = new Rect(bodyRect.x + 10f, textFieldRect.yMax + 12f, bodyRect.width - 20f, 72f);
+            CorvusStyle.DrawInset(infoRect);
+            CorvusStyle.DrawWrappedText(infoRect.ContractedBy(8f), "CorvusSurgeryUI.Dialog.ImportInfo".Translate(), CorvusStyle.TextSecondary, 11);
 
-            // Buttons
-            var buttonWidth = 80f;
-            var buttonHeight = 35f;
-            var spacing = 20f;
-            var totalButtonWidth = (buttonWidth * 2) + spacing;
-            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
-
-            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
+            var cancelRect = new Rect(bodyRect.x + bodyRect.width - 162f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(cancelRect, "CorvusSurgeryUI.Cancel".Translate().ToString()))
             {
                 Close();
             }
 
-            var importRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(importRect, "CorvusSurgeryUI.Import".Translate()))
+            var importRect = new Rect(bodyRect.x + bodyRect.width - 80f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(importRect, "CorvusSurgeryUI.Import".Translate().ToString(), true))
             {
                 if (!filePath.NullOrEmpty() && File.Exists(filePath))
                 {
@@ -4430,7 +4445,7 @@ namespace CorvusSurgeryUI
         public Dialog_ConsolidatedImport()
         {
             this.forcePause = true;
-            this.doCloseX = true;
+            this.doCloseX = false;
             this.absorbInputAroundWindow = true;
         }
 
@@ -4438,33 +4453,38 @@ namespace CorvusSurgeryUI
 
         public override void DoWindowContents(Rect inRect)
         {
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.ImportTitle".Translate());
-            Text.Font = GameFont.Small;
+            CorvusStyle.DrawWindowBackground(inRect);
+            var headerRect = new Rect(inRect.x, inRect.y, inRect.width, 32f);
+            CorvusStyle.DrawWindowHeader(headerRect, "CorvusSurgeryUI.Dialog.ImportTitle".Translate(), null);
+            var closeRect = new Rect(headerRect.xMax - 28f, headerRect.y + 5f, 22f, headerRect.height - 10f);
+            if (CorvusStyle.DrawHeaderCloseButton(closeRect))
+            {
+                Close();
+                return;
+            }
 
-            var infoRect = new Rect(0f, 40f, inRect.width, 40f);
-            Widgets.Label(infoRect, "CorvusSurgeryUI.Dialog.ChooseImportSource".Translate());
+            var bodyRect = new Rect(inRect.x + 10f, headerRect.yMax + 10f, inRect.width - 20f, inRect.height - headerRect.height - 20f);
+            CorvusStyle.DrawPanel(bodyRect);
 
-            // Import from Other Saves button
-            var importSavesRect = new Rect(50f, 90f, inRect.width - 100f, 35f);
-            if (Widgets.ButtonText(importSavesRect, "CorvusSurgeryUI.Dialog.ImportFromSavesButton".Translate()))
+            var infoRect = new Rect(bodyRect.x + 10f, bodyRect.y + 10f, bodyRect.width - 20f, 40f);
+            CorvusStyle.DrawWrappedText(infoRect, "CorvusSurgeryUI.Dialog.ChooseImportSource".Translate(), CorvusStyle.TextPrimary, 11);
+
+            var importSavesRect = new Rect(bodyRect.x + 40f, bodyRect.y + 62f, bodyRect.width - 80f, 24f);
+            if (CorvusStyle.DrawCompactButton(importSavesRect, "CorvusSurgeryUI.Dialog.ImportFromSavesButton".Translate().ToString(), true))
             {
                 Close();
                 Find.WindowStack.Add(new Dialog_ImportFromSaves());
             }
 
-            // Import from File button  
-            var importFileRect = new Rect(50f, 135f, inRect.width - 100f, 35f);
-            if (Widgets.ButtonText(importFileRect, "CorvusSurgeryUI.Dialog.ImportFromFileButton".Translate()))
+            var importFileRect = new Rect(bodyRect.x + 40f, bodyRect.y + 96f, bodyRect.width - 80f, 24f);
+            if (CorvusStyle.DrawCompactButton(importFileRect, "CorvusSurgeryUI.Dialog.ImportFromFileButton".Translate().ToString()))
             {
                 Close();
                 Find.WindowStack.Add(new Dialog_ImportPresetFile());
             }
 
-            // Close button
-            var closeButtonRect = new Rect((inRect.width - 80f) / 2f, inRect.height - 35f, 80f, 30f);
-            if (Widgets.ButtonText(closeButtonRect, "CorvusSurgeryUI.Close".Translate()))
+            var closeButtonRect = new Rect(bodyRect.x + bodyRect.width - 74f, bodyRect.yMax - 28f, 64f, 20f);
+            if (CorvusStyle.DrawCompactButton(closeButtonRect, "CorvusSurgeryUI.Close".Translate().ToString()))
             {
                 Close();
             }
@@ -4485,7 +4505,7 @@ namespace CorvusSurgeryUI
             this.onConfirm = onConfirm;
             this.onCancel = onCancel;
             this.forcePause = true;
-            this.doCloseX = true;
+            this.doCloseX = false;
             this.absorbInputAroundWindow = true;
         }
 
@@ -4493,31 +4513,33 @@ namespace CorvusSurgeryUI
 
         public override void DoWindowContents(Rect inRect)
         {
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(0f, 0f, inRect.width, 30f);
-            Widgets.Label(titleRect, "CorvusSurgeryUI.Dialog.PresetExistsTitle".Translate());
-            Text.Font = GameFont.Small;
+            CorvusStyle.DrawWindowBackground(inRect);
+            var headerRect = new Rect(inRect.x, inRect.y, inRect.width, 32f);
+            CorvusStyle.DrawWindowHeader(headerRect, "CorvusSurgeryUI.Dialog.PresetExistsTitle".Translate(), null);
+            var closeRect = new Rect(headerRect.xMax - 28f, headerRect.y + 5f, 22f, headerRect.height - 10f);
+            if (CorvusStyle.DrawHeaderCloseButton(closeRect))
+            {
+                onCancel?.Invoke();
+                Close();
+                return;
+            }
 
-            var messageRect = new Rect(0f, 40f, inRect.width, 80f);
+            var bodyRect = new Rect(inRect.x + 10f, headerRect.yMax + 10f, inRect.width - 20f, inRect.height - headerRect.height - 20f);
+            CorvusStyle.DrawPanel(bodyRect);
+
+            var messageRect = new Rect(bodyRect.x + 10f, bodyRect.y + 12f, bodyRect.width - 20f, 58f);
             string message = "CorvusSurgeryUI.Dialog.PresetExistsMessage".Translate(presetName, existingSaveName);
-            Widgets.Label(messageRect, message);
+            CorvusStyle.DrawWrappedText(messageRect, message, CorvusStyle.TextPrimary, 11);
 
-            // Buttons
-            var buttonWidth = 80f;
-            var buttonHeight = 35f;
-            var spacing = 20f;
-            var totalButtonWidth = (buttonWidth * 2) + spacing;
-            var buttonStartX = (inRect.width - totalButtonWidth) / 2f;
-
-            var cancelRect = new Rect(buttonStartX, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(cancelRect, "CorvusSurgeryUI.Cancel".Translate()))
+            var cancelRect = new Rect(bodyRect.x + bodyRect.width - 162f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(cancelRect, "CorvusSurgeryUI.Cancel".Translate().ToString()))
             {
                 onCancel?.Invoke();
                 Close();
             }
 
-            var overwriteRect = new Rect(buttonStartX + buttonWidth + spacing, inRect.height - buttonHeight - 10f, buttonWidth, buttonHeight);
-            if (Widgets.ButtonText(overwriteRect, "CorvusSurgeryUI.Overwrite".Translate()))
+            var overwriteRect = new Rect(bodyRect.x + bodyRect.width - 80f, bodyRect.yMax - 30f, 74f, 22f);
+            if (CorvusStyle.DrawCompactButton(overwriteRect, "CorvusSurgeryUI.Overwrite".Translate().ToString(), true))
             {
                 onConfirm?.Invoke();
                 Close();
