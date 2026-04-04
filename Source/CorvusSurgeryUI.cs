@@ -769,6 +769,7 @@ namespace CorvusSurgeryUI
     // Main dialog window for enhanced surgery planning
     public class Dialog_CorvusSurgeryPlanner : Window
     {
+        private const float HEADER_HEIGHT = 34f;
         private const float TAB_HEIGHT = 35f;
         private const float FILTER_HEIGHT = 70f;
         private const float DROPDOWN_WIDTH = 150f;
@@ -823,7 +824,6 @@ namespace CorvusSurgeryUI
         // Visual Planner tab
         private SvgBodyDiagram bodyDiagram = new SvgBodyDiagram();
         private BodyPartRegion clickedBodyPart = null;
-        private bool showFloatingDropdown = false;
 
         // Performance optimization - static caches
         private static Dictionary<RecipeDef, SurgeryCategory> recipeCategoryCache = new Dictionary<RecipeDef, SurgeryCategory>();
@@ -835,7 +835,7 @@ namespace CorvusSurgeryUI
             this.pawn = pawn;
             this.thingForMedBills = thingForMedBills;
             this.forcePause = true;
-            this.doCloseX = true;
+            this.doCloseX = false;
             this.absorbInputAroundWindow = true;
             
             // Initialize tabs
@@ -861,35 +861,72 @@ namespace CorvusSurgeryUI
             ApplyFilters();
         }
 
-        public override Vector2 InitialSize => new Vector2(1200f, 800f); // Increased from 750f to 800f
+        private const float MIN_WINDOW_WIDTH = 1100f;
+        private const float MIN_WINDOW_HEIGHT = 760f;
+        private const float MAX_WINDOW_WIDTH = 1400f;
+        private const float MAX_WINDOW_HEIGHT = 900f;
+        private const float WINDOW_WIDTH_RATIO = 0.82f;
+        private const float WINDOW_HEIGHT_RATIO = 0.82f;
+
+        private Vector2 CalculateWindowSize()
+        {
+            float targetWidth = UI.screenWidth * WINDOW_WIDTH_RATIO;
+            float targetHeight = UI.screenHeight * WINDOW_HEIGHT_RATIO;
+
+            float width = Mathf.Clamp(targetWidth, MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
+            float height = Mathf.Clamp(targetHeight, MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
+
+            width = Mathf.Min(width, UI.screenWidth - 24f);
+            height = Mathf.Min(height, UI.screenHeight - 30f);
+
+            return new Vector2(width, height);
+        }
+
+        public override Vector2 InitialSize => CalculateWindowSize();
 
         protected override void SetInitialSizeAndPosition()
         {
-            windowRect = new Rect((UI.screenWidth - InitialSize.x) / 2f, 
-                                (UI.screenHeight - InitialSize.y) / 2f, 
-                                InitialSize.x, InitialSize.y);
+            Vector2 initialSize = CalculateWindowSize();
+            windowRect = new Rect((UI.screenWidth - initialSize.x) / 2f, 
+                                (UI.screenHeight - initialSize.y) / 2f, 
+                                initialSize.x, initialSize.y);
             windowRect.y = Mathf.Max(15f, windowRect.y); // Ensure window doesn't start too high
         }
 
         public override void DoWindowContents(Rect inRect)
         {
-            // Follow WeaponStats pattern exactly - adjust rect once for tabs
-            inRect.yMin += 35;
+            CorvusStyle.DrawWindowBackground(inRect);
 
-            // Draw tabs
-            TabDrawer.DrawTabs(inRect, tabs);
+            Rect headerRect = new Rect(inRect.x, inRect.y, inRect.width, HEADER_HEIGHT);
+            CorvusStyle.DrawWindowHeader(headerRect, "Corvus Surgery Planner", "COG MED");
+            Rect closeRect = new Rect(headerRect.xMax - 30f, headerRect.y + 5f, 24f, headerRect.height - 10f);
+            if (CorvusStyle.DrawHeaderCloseButton(closeRect))
+            {
+                Close();
+                return;
+            }
+
+            Rect bodyRect = new Rect(inRect.x + 8f, headerRect.yMax + 6f, inRect.width - 16f, inRect.height - HEADER_HEIGHT - 14f);
+            Rect tabStripRect = new Rect(bodyRect.x, bodyRect.y, bodyRect.width, TAB_HEIGHT);
+            CorvusStyle.DrawTabStrip(tabStripRect);
+            CorvusStyle.ApplyScrollStyles();
+
+            // Follow the existing tab layout pattern after reserving space for the custom header.
+            bodyRect.yMin += TAB_HEIGHT;
+
+            DrawCorvusTabs(tabStripRect);
 
             if (selectedTabIndex == 0)
             {
-                DrawOverviewTab(inRect);
+                DrawOverviewTab(bodyRect);
             }
             else if (selectedTabIndex == 1)
             {
-                DrawVisualPlannerTab(inRect);
+                DrawVisualPlannerTab(bodyRect);
             }
             else if (selectedTabIndex == 2)
             {
-                DrawPresetsTab(inRect);
+                DrawPresetsTab(bodyRect);
             }
             
             // Save selected tab
@@ -900,24 +937,54 @@ namespace CorvusSurgeryUI
             }
         }
 
+        private void DrawCorvusTabs(Rect rect)
+        {
+            float tabWidth = 168f;
+            float tabHeight = rect.height - 6f;
+            float tabY = rect.y + 4f;
+            float currentX = rect.x + 4f;
+
+            string[] tabLabels =
+            {
+                "CorvusSurgeryUI.Tab.Overview".Translate(),
+                "CorvusSurgeryUI.Tab.VisualPlanner".Translate(),
+                "CorvusSurgeryUI.Tab.Presets".Translate()
+            };
+
+            for (int i = 0; i < tabLabels.Length; i++)
+            {
+                Rect tabRect = new Rect(currentX, tabY, tabWidth, tabHeight);
+                if (CorvusStyle.DrawTab(tabRect, tabLabels[i], selectedTabIndex == i))
+                {
+                    selectedTabIndex = i;
+                }
+
+                currentX += tabWidth + 2f;
+            }
+        }
+
         private void DrawOverviewTab(Rect rect)
         {
             float currentY = rect.y + 5f; // Start with a small padding
 
             // Draw filters section
             var filtersRect = new Rect(rect.x, currentY, rect.width, FILTER_HEIGHT);
-            DrawFilters(filtersRect); // Overview tab allows all pawns
+            CorvusStyle.DrawPanel(filtersRect);
+            DrawFilters(filtersRect.ContractedBy(6f)); // Overview tab allows all pawns
             currentY += FILTER_HEIGHT + SECTION_SPACING;
 
             // Info bar with pawn name and surgery count
             var surgeryCount = filteredSurgeries?.Count ?? 0;
             var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
+            CorvusStyle.DrawInset(infoRect);
             Widgets.Label(infoRect, "CorvusSurgeryUI.PawnSurgeryCount".Translate(pawn.LabelShort, surgeryCount));
             currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
 
             // Search and Queue Non Allowed controls
             var searchLabelRect = new Rect(rect.x, currentY + 2f, 50f, DROPDOWN_HEIGHT);
+            GUI.color = CorvusStyle.TextSecondary;
             Widgets.Label(searchLabelRect, "CorvusSurgeryUI.Search".Translate());
+            GUI.color = Color.white;
             
             var searchRect = new Rect(searchLabelRect.xMax + 5f, currentY, 200f, DROPDOWN_HEIGHT);
             string newFilter = Widgets.TextField(searchRect, searchFilter);
@@ -927,9 +994,18 @@ namespace CorvusSurgeryUI
                 ApplyFilters();
             }
 
-            var queueToggleRect = new Rect(searchRect.xMax + 20f, currentY, 200f, DROPDOWN_HEIGHT);
+            var queueLabelRect = new Rect(searchRect.xMax + 20f, currentY + 2f, 130f, DROPDOWN_HEIGHT);
+            GUI.color = CorvusStyle.TextSecondary;
+            Widgets.Label(queueLabelRect, "Queue Non Allowed");
+            GUI.color = Color.white;
+
+            var queueToggleRect = new Rect(queueLabelRect.xMax + 8f, currentY, 52f, DROPDOWN_HEIGHT);
             bool newAllowQueueingDisabled = allowQueueingDisabled;
-            Widgets.CheckboxLabeled(queueToggleRect, "Queue Non Allowed", ref newAllowQueueingDisabled);
+            if (CorvusStyle.DrawCompactButton(queueToggleRect, allowQueueingDisabled ? "ON" : "OFF", allowQueueingDisabled))
+            {
+                newAllowQueueingDisabled = !allowQueueingDisabled;
+            }
+
             if (newAllowQueueingDisabled != allowQueueingDisabled)
             {
                 allowQueueingDisabled = newAllowQueueingDisabled;
@@ -958,21 +1034,23 @@ namespace CorvusSurgeryUI
             
             // Header with controls on the right
             var eligiblePawns = GetAllEligiblePawns();
-            var headerRect = new Rect(rect.x, currentY, rect.width, 30f);
+            var headerRect = new Rect(rect.x, currentY, rect.width, 34f);
+            CorvusStyle.DrawPanel(headerRect);
             
             // Left side - title
             Text.Font = GameFont.Medium;
-            var titleRect = new Rect(headerRect.x, headerRect.y, headerRect.width * 0.6f, headerRect.height);
+            var titleRect = new Rect(headerRect.x + 10f, headerRect.y + 4f, headerRect.width * 0.5f, 24f);
             Widgets.Label(titleRect, "CorvusSurgeryUI.SurgeryPresets".Translate(eligiblePawns.Count));
             Text.Font = GameFont.Small;
             
             // Right side - preset controls
-            DrawPresetsTabControls(new Rect(titleRect.xMax, headerRect.y, headerRect.width - titleRect.width, headerRect.height), eligiblePawns);
+            DrawPresetsTabControls(new Rect(rect.x + rect.width * 0.42f, headerRect.y + 5f, rect.width * 0.58f - 10f, 22f), eligiblePawns);
             
-            currentY = headerRect.yMax + 5f;
+            currentY = headerRect.yMax + 8f;
 
             // Filter checkboxes
-            var filterRect = new Rect(rect.x, currentY, rect.width, 30f);
+            var filterRect = new Rect(rect.x, currentY, rect.width, 28f);
+            CorvusStyle.DrawPanel(filterRect);
             bool filtersChanged = DrawPresetFilters(filterRect);
             currentY = filterRect.yMax + 10f;
             
@@ -985,7 +1063,7 @@ namespace CorvusSurgeryUI
                 Text.Font = GameFont.Medium;
                 Widgets.Label(titleRect, "CorvusSurgeryUI.SurgeryPresets".Translate(eligiblePawns.Count));
                 Text.Font = GameFont.Small;
-                DrawPresetsTabControls(new Rect(titleRect.xMax, headerRect.y, headerRect.width - titleRect.width, headerRect.height), eligiblePawns);
+                DrawPresetsTabControls(new Rect(rect.x + rect.width * 0.42f, headerRect.y + 5f, rect.width * 0.58f - 10f, 22f), eligiblePawns);
             }
 
             // Ensure we have a selected pawn (default to first)
@@ -1140,9 +1218,9 @@ namespace CorvusSurgeryUI
         private bool DrawPresetFilters(Rect rect)
         {
             bool changed = false;
-            float currentX = rect.x;
-            const float checkboxWidth = 100f;
-            const float spacing = 10f;
+            float currentX = rect.x + 8f;
+            const float spacing = 8f;
+            float buttonWidth = Mathf.Min(110f, (rect.width - 16f - spacing * 4f) / 5f);
             
             // Store original values to detect changes
             bool origColonists = showColonists;
@@ -1151,25 +1229,43 @@ namespace CorvusSurgeryUI
             bool origAnimals = showAnimals;
             bool origGuests = showGuests;
             
-            // Draw checkboxes horizontally
-            var colonistRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
-            Widgets.CheckboxLabeled(colonistRect, "CorvusSurgeryUI.Colonists".Translate(), ref showColonists);
-            currentX += checkboxWidth + spacing;
+            float buttonY = rect.y + 3f;
+            float buttonHeight = rect.height - 6f;
+
+            // Draw toggle buttons horizontally
+            var colonistRect = new Rect(currentX, buttonY, buttonWidth, buttonHeight);
+            if (CorvusStyle.DrawCompactButton(colonistRect, "CorvusSurgeryUI.Colonists".Translate().ToString(), showColonists))
+            {
+                showColonists = !showColonists;
+            }
+            currentX += buttonWidth + spacing;
             
-            var prisonerRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
-            Widgets.CheckboxLabeled(prisonerRect, "CorvusSurgeryUI.Prisoners".Translate(), ref showPrisoners);
-            currentX += checkboxWidth + spacing;
+            var prisonerRect = new Rect(currentX, buttonY, buttonWidth, buttonHeight);
+            if (CorvusStyle.DrawCompactButton(prisonerRect, "CorvusSurgeryUI.Prisoners".Translate().ToString(), showPrisoners))
+            {
+                showPrisoners = !showPrisoners;
+            }
+            currentX += buttonWidth + spacing;
             
-            var slaveRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
-            Widgets.CheckboxLabeled(slaveRect, "CorvusSurgeryUI.Slaves".Translate(), ref showSlaves);
-            currentX += checkboxWidth + spacing;
+            var slaveRect = new Rect(currentX, buttonY, buttonWidth, buttonHeight);
+            if (CorvusStyle.DrawCompactButton(slaveRect, "CorvusSurgeryUI.Slaves".Translate().ToString(), showSlaves))
+            {
+                showSlaves = !showSlaves;
+            }
+            currentX += buttonWidth + spacing;
             
-            var animalRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
-            Widgets.CheckboxLabeled(animalRect, "CorvusSurgeryUI.Animals".Translate(), ref showAnimals);
-            currentX += checkboxWidth + spacing;
+            var animalRect = new Rect(currentX, buttonY, buttonWidth, buttonHeight);
+            if (CorvusStyle.DrawCompactButton(animalRect, "CorvusSurgeryUI.Animals".Translate().ToString(), showAnimals))
+            {
+                showAnimals = !showAnimals;
+            }
+            currentX += buttonWidth + spacing;
             
-            var guestRect = new Rect(currentX, rect.y, checkboxWidth, rect.height);
-            Widgets.CheckboxLabeled(guestRect, "CorvusSurgeryUI.Guests".Translate(), ref showGuests);
+            var guestRect = new Rect(currentX, buttonY, buttonWidth, buttonHeight);
+            if (CorvusStyle.DrawCompactButton(guestRect, "CorvusSurgeryUI.Guests".Translate().ToString(), showGuests))
+            {
+                showGuests = !showGuests;
+            }
             
             // Check if any filters changed
             changed = origColonists != showColonists || 
@@ -1202,26 +1298,36 @@ namespace CorvusSurgeryUI
             
             // Filters section (same as Overview tab but with humanoid pawns only)
             var filtersRect = new Rect(rect.x, currentY, rect.width, FILTER_HEIGHT);
-            DrawFilters(filtersRect, true); // true = humanoids only
+            CorvusStyle.DrawPanel(filtersRect);
+            DrawFilters(filtersRect.ContractedBy(6f), true); // true = humanoids only
             currentY += FILTER_HEIGHT + SECTION_SPACING;
 
             // Info bar with pawn name and surgery count
             var surgeryCount = filteredSurgeries?.Count ?? 0;
-            var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT);
+            var infoRect = new Rect(rect.x, currentY, rect.width, DROPDOWN_HEIGHT + 4f);
+            CorvusStyle.DrawInset(infoRect);
             if (pawn != null)
             {
-                Widgets.Label(infoRect, "CorvusSurgeryUI.PawnSurgeryCount".Translate(pawn.LabelShort, surgeryCount));
+                CorvusStyle.DrawPrimaryText(infoRect.ContractedBy(6f), "CorvusSurgeryUI.PawnSurgeryCount".Translate(pawn.LabelShort, surgeryCount), TextAnchor.MiddleLeft);
             }
             else
             {
-                Widgets.Label(infoRect, "CorvusSurgeryUI.NoHumanoidPawns".Translate());
+                CorvusStyle.DrawPrimaryText(infoRect.ContractedBy(6f), "CorvusSurgeryUI.NoHumanoidPawns".Translate(), TextAnchor.MiddleLeft);
             }
             currentY += DROPDOWN_HEIGHT + SECTION_SPACING;
 
             // Queue Non Allowed control
-            var queueToggleRect = new Rect(rect.x, currentY, 200f, DROPDOWN_HEIGHT);
+            var queueLabelRect = new Rect(rect.x, currentY + 2f, 130f, DROPDOWN_HEIGHT);
+            GUI.color = CorvusStyle.TextSecondary;
+            Widgets.Label(queueLabelRect, "Queue Non Allowed");
+            GUI.color = Color.white;
+
+            var queueToggleRect = new Rect(queueLabelRect.xMax + 8f, currentY, 52f, DROPDOWN_HEIGHT);
             bool newAllowQueueingDisabled = allowQueueingDisabled;
-            Widgets.CheckboxLabeled(queueToggleRect, "CorvusSurgeryUI.QueueNonAllowed".Translate(), ref newAllowQueueingDisabled);
+            if (CorvusStyle.DrawCompactButton(queueToggleRect, allowQueueingDisabled ? "ON" : "OFF", allowQueueingDisabled))
+            {
+                newAllowQueueingDisabled = !allowQueueingDisabled;
+            }
             if (newAllowQueueingDisabled != allowQueueingDisabled)
             {
                 allowQueueingDisabled = newAllowQueueingDisabled;
@@ -1244,12 +1350,6 @@ namespace CorvusSurgeryUI
             // Surgery Queue (right side)
             var queuedBillsRect = new Rect(diagramRect.xMax + 10f, remainingRect.y, queueWidth, remainingRect.height);
             DrawQueuedBills(queuedBillsRect);
-            
-            // Handle floating dropdown
-            if (showFloatingDropdown && clickedBodyPart != null)
-            {
-                DrawFloatingBodyPartDropdown();
-            }
         }
         
         private List<Pawn> GetHumanoidPawns()
@@ -1275,180 +1375,149 @@ namespace CorvusSurgeryUI
         
         private void DrawBodyDiagram(Rect rect)
         {
-            // Draw header
-            Text.Font = GameFont.Medium;
-            var headerRect = new Rect(rect.x, rect.y, rect.width, 25f);
-            Widgets.Label(headerRect, "CorvusSurgeryUI.BodyDiagram".Translate());
-            Text.Font = GameFont.Small;
-            
-            // Adjust diagram area
-            var diagramArea = new Rect(rect.x, rect.y + 30f, rect.width, rect.height - 30f);
-            
+            CorvusStyle.DrawPanel(rect);
+            var headerRect = new Rect(rect.x + 10f, rect.y + 6f, rect.width - 20f, 18f);
+            CorvusStyle.DrawSectionHeader(headerRect, "Body Diagram");
+
+            var statusRect = new Rect(rect.x + 10f, rect.y + 24f, rect.width - 20f, 18f);
+            string selectedLabel = clickedBodyPart != null ? clickedBodyPart.SvgId.Replace("-", " ").CapitalizeFirst() : "Select a body part to inspect surgeries";
+            CorvusStyle.DrawSubtleText(statusRect, selectedLabel);
+
+            // Split into anatomy surface and inline inspector
+            float inspectorWidth = Mathf.Clamp(rect.width * 0.35f, 220f, 280f);
+            var diagramArea = new Rect(rect.x + 6f, rect.y + 46f, rect.width - inspectorWidth - 16f, rect.height - 52f);
+            var inspectorRect = new Rect(diagramArea.xMax + 6f, diagramArea.y, inspectorWidth, diagramArea.height);
+            CorvusStyle.DrawInset(diagramArea);
+            CorvusStyle.DrawInset(inspectorRect);
+
+            var bodyDiagramRect = diagramArea.ContractedBy(10f);
+
             // Draw the body diagram
-            bodyDiagram.DrawBodyDiagram(diagramArea, pawn);
-            
+            bodyDiagram.DrawBodyDiagram(bodyDiagramRect, pawn, clickedBodyPart);
+
             // Handle clicks on the body diagram
-            if (Event.current.type == EventType.MouseDown && Event.current.button == 0 && diagramArea.Contains(Event.current.mousePosition))
+            if (Event.current.type == EventType.MouseDown && Event.current.button == 0 && bodyDiagramRect.Contains(Event.current.mousePosition))
             {
-                var relativeClickPos = Event.current.mousePosition - new Vector2(diagramArea.x, diagramArea.y);
-                var clickedPart = bodyDiagram.GetClickedBodyPart(relativeClickPos, diagramArea);
-                
-                if (clickedPart != null)
+                var relativeClickPos = Event.current.mousePosition - new Vector2(bodyDiagramRect.x, bodyDiagramRect.y);
+                var clickedPart = bodyDiagram.GetClickedBodyPart(relativeClickPos, bodyDiagramRect);
+
+                if (clickedPart != null && clickedBodyPart == clickedPart)
+                {
+                    clickedBodyPart = null;
+                    Event.current.Use();
+                }
+                else if (clickedPart != null)
                 {
                     clickedBodyPart = clickedPart;
-                    showFloatingDropdown = true;
                     Event.current.Use();
                 }
             }
+
+            DrawBodyPartInspector(inspectorRect.ContractedBy(8f));
         }
-        
-        private void DrawFloatingBodyPartDropdown()
+
+        private void DrawBodyPartInspector(Rect rect)
         {
-            if (clickedBodyPart == null || pawn == null) return;
-            
-            // Get surgeries and current parts for this body part
+            var sectionHeaderRect = new Rect(rect.x, rect.y, rect.width, 18f);
+            CorvusStyle.DrawSectionHeader(sectionHeaderRect, "Part Inspector");
+
+            if (clickedBodyPart == null || pawn == null)
+            {
+                var emptyRect = new Rect(rect.x, rect.y + 28f, rect.width - 4f, 88f);
+                CorvusStyle.DrawWrappedText(emptyRect, "Select a region in the anatomy view to inspect current parts and available surgeries.", CorvusStyle.TextPrimary, 11);
+                return;
+            }
+
             var bodyPartSurgeries = GetSurgeriesForBodyPart(clickedBodyPart);
             var currentParts = GetCurrentPartsForBodyPart(clickedBodyPart);
-            
-            List<FloatMenuOption> options = new List<FloatMenuOption>();
-            
-            // === SECTION 1: HEADER ===
-            var headerText = !string.IsNullOrEmpty(clickedBodyPart.SvgId) ? 
-                clickedBodyPart.SvgId.CapitalizeFirst() : "Body Part";
-            options.Add(new FloatMenuOption($"─── {headerText} ───", null) { Disabled = true });
-            
-            // === SECTION 2: CURRENT PARTS ===
+
+            float currentY = rect.y + 26f;
+            string headerText = !string.IsNullOrEmpty(clickedBodyPart.SvgId) ? clickedBodyPart.SvgId.Replace("-", " ").CapitalizeFirst() : "Body Part";
+            var partTitleRect = new Rect(rect.x, currentY, rect.width, 20f);
+            CorvusStyle.DrawPrimaryText(partTitleRect, headerText);
+            currentY += 22f;
+
+            var currentPartsHeaderRect = new Rect(rect.x, currentY, rect.width, 16f);
+            CorvusStyle.DrawSubtleText(currentPartsHeaderRect, "Current state");
+            currentY += 18f;
+
             if (currentParts.Any())
             {
-                options.Add(new FloatMenuOption("Current parts:", null) { Disabled = true });
-                
-                foreach (var part in currentParts)
+                foreach (var part in currentParts.Take(3))
                 {
-                    if (!part.Contains("(Missing)"))
-                    {
-                        if (part.Contains("(Natural)"))
-                        {
-                            // For natural parts, look for amputation surgeries
-                            var amputationSurgeries = bodyPartSurgeries
-                                .Where(s => s.Label.ToLower().Contains("amputat") ||
-                                           s.Recipe.defName.ToLower().Contains("amputat"))
-                                .ToList();
-                            
-                            if (amputationSurgeries.Any())
-                            {
-                                var ampSurgery = amputationSurgeries.First();
-                                options.Add(new FloatMenuOption($"  Amputate {part.Replace(" (Natural)", "")}", () => {
-                                    QueueSurgeryFromBodyPart(ampSurgery, clickedBodyPart);
-                                    showFloatingDropdown = false;
-                                }));
-                            }
-                            else
-                            {
-                                // Show as info if no amputation available
-                                options.Add(new FloatMenuOption($"  {part}", null) { Disabled = true });
-                            }
-                        }
-                        else
-                        {
-                            // For installed prosthetics/bionics, allow removal
-                            var removalSurgeries = bodyPartSurgeries
-                                .Where(s => s.Label.ToLower().Contains("remove") && 
-                                           !s.Label.ToLower().Contains("install") &&
-                                           !s.Label.ToLower().Contains("amputat"))
-                                .ToList();
-                            
-                            if (removalSurgeries.Any())
-                            {
-                                var removalSurgery = removalSurgeries.First();
-                                options.Add(new FloatMenuOption($"  Remove {part}", () => {
-                                    QueueSurgeryFromBodyPart(removalSurgery, clickedBodyPart);
-                                    showFloatingDropdown = false;
-                                }));
-                            }
-                            else
-                            {
-                                options.Add(new FloatMenuOption($"  {part} (no removal available)", null) { Disabled = true });
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // For missing parts, show as info
-                        options.Add(new FloatMenuOption($"  {part}", null) { Disabled = true });
-                    }
+                    var partRect = new Rect(rect.x, currentY, rect.width, 18f);
+                    CorvusStyle.DrawSubtleText(partRect, "• " + part.Replace(" (Natural)", "").Replace(" (Missing)", " [Missing]"));
+                    currentY += 18f;
                 }
             }
-            
-            // === SECTION 3: AVAILABLE SURGERIES ===
-            // Only show install/replacement surgeries here
+            else
+            {
+                var noPartsRect = new Rect(rect.x, currentY, rect.width, 18f);
+                CorvusStyle.DrawSubtleText(noPartsRect, "• No current part data");
+                currentY += 18f;
+            }
+
+            currentY += 8f;
+            var availableHeaderRect = new Rect(rect.x, currentY, rect.width, 16f);
+            CorvusStyle.DrawSubtleText(availableHeaderRect, "Available surgeries");
+            currentY += 20f;
+
             var installSurgeries = bodyPartSurgeries
                 .Where(s => s.Label.ToLower().Contains("install") || 
                            s.Label.ToLower().Contains("replace") ||
                            (!s.Label.ToLower().Contains("amputat") && 
                             !s.Label.ToLower().Contains("remove")))
                 .ToList();
-                
+
             if (installSurgeries.Any())
             {
-                foreach (var surgery in installSurgeries)
+                foreach (var surgery in installSurgeries.Take(6))
                 {
-                    // Fix missing label issue
-                    var surgeryLabel = !string.IsNullOrEmpty(surgery.Label) ? surgery.Label : "Unknown Surgery";
-                    
-                    // Determine action based on availability and allowQueueingDisabled setting
-                    System.Action surgeryAction;
-                    if (!surgery.IsAvailable && allowQueueingDisabled)
-                    {
-                        // Use force queue action for disabled surgeries when Queue Non Allowed is checked
-                        surgeryAction = () => {
-                            surgery.ForceQueueAction?.Invoke();
-                            showFloatingDropdown = false;
-                        };
-                    }
-                    else
-                    {
-                        // Use regular queue action
-                        surgeryAction = () => {
-                            QueueSurgeryFromBodyPart(surgery, clickedBodyPart);
-                            showFloatingDropdown = false;
-                        };
-                    }
-                    
-                    var option = new FloatMenuOption($"  {surgeryLabel}", surgeryAction);
-                    
-                    // Add tooltip if surgery has description
-                    if (!surgery.Description.NullOrEmpty())
-                    {
-                        option.tooltip = surgery.Description;
-                    }
-                    
-                    // Only disable if surgery is not available AND allowQueueingDisabled is false
-                    if (!surgery.IsAvailable && !allowQueueingDisabled)
-                    {
-                        option.Disabled = true;
-                        option.tooltip = surgery.Requirements ?? "Surgery not available";
-                    }
-                    else if (!surgery.IsAvailable && allowQueueingDisabled)
-                    {
-                        // Add indication that this will be force-queued
-                        option.tooltip = (surgery.Requirements ?? "Surgery not available") + "\n\n(Will be force-queued and suspended)";
-                    }
-                    
-                    options.Add(option);
+                    var rowRect = new Rect(rect.x, currentY, rect.width, 38f);
+                    DrawBodyPartSurgeryRow(rowRect, surgery);
+                    currentY += 42f;
                 }
             }
-            else if (!currentParts.Any())
+            else
             {
-                // Only show "No surgeries available" if there are no current parts either
-                options.Add(new FloatMenuOption("No surgeries available", null) { Disabled = true });
+                var noneRect = new Rect(rect.x, currentY, rect.width, 32f);
+                CorvusStyle.DrawPrimaryText(noneRect, "No surgeries available");
             }
-            
-            // Create and show the float menu
-            var floatMenu = new FloatMenu(options);
-            Find.WindowStack.Add(floatMenu);
-            
-            // Reset the dropdown state
-            showFloatingDropdown = false;
+        }
+
+        private void DrawBodyPartSurgeryRow(Rect rect, SurgeryOptionCached surgery)
+        {
+            bool hover = Mouse.IsOver(rect);
+            CorvusStyle.DrawRow(rect, hover);
+
+            var labelRect = new Rect(rect.x + 8f, rect.y + 4f, rect.width - 88f, 16f);
+            var reqRect = new Rect(rect.x + 8f, rect.y + 20f, rect.width - 88f, 14f);
+            var statusRect = new Rect(rect.xMax - 82f, rect.y + 7f, 52f, 18f);
+            var actionRect = new Rect(rect.xMax - 24f, rect.y + 8f, 16f, 16f);
+
+            string surgeryLabel = !string.IsNullOrEmpty(surgery.Label) ? surgery.Label : "Unknown Surgery";
+            CorvusStyle.DrawPrimaryText(labelRect, surgeryLabel);
+            CorvusStyle.DrawSubtleText(reqRect, surgery.IsAvailable ? (surgery.Requirements.NullOrEmpty() ? "Ready to queue" : surgery.Requirements) : (surgery.Requirements ?? "Not available"));
+            CorvusStyle.DrawStatusPill(statusRect, surgery.IsAvailable ? "READY" : (allowQueueingDisabled ? "QUEUE" : "BLOCKED"), surgery.IsAvailable ? CorvusStyle.Success : (allowQueueingDisabled ? CorvusStyle.Warning : CorvusStyle.Danger));
+            CorvusStyle.DrawCompactButtonVisual(actionRect, "+", !surgery.IsAvailable && allowQueueingDisabled);
+
+            bool canQueue = surgery.IsAvailable || allowQueueingDisabled;
+            if (canQueue && Widgets.ButtonInvisible(actionRect))
+            {
+                if (!surgery.IsAvailable && allowQueueingDisabled)
+                {
+                    surgery.ForceQueueAction?.Invoke();
+                }
+                else
+                {
+                    QueueSurgeryFromBodyPart(surgery, clickedBodyPart);
+                }
+            }
+
+            if (!surgery.Description.NullOrEmpty())
+            {
+                TooltipHandler.TipRegion(rect, surgery.Description);
+            }
         }
         
         private List<SurgeryOptionCached> GetSurgeriesForBodyPart(BodyPartRegion bodyPartRegion)
@@ -1720,12 +1789,13 @@ namespace CorvusSurgeryUI
         private void DrawPresetsTabControls(Rect rect, List<Pawn> eligiblePawns)
         {
             float rightX = rect.xMax;
+            float buttonHeight = rect.height;
             
             // Export button (only if a preset is selected)
             if (selectedPreset != "(none)")
             {
-                var exportButtonRect = new Rect(rightX - 60f, rect.y, 60f, rect.height);
-                if (Widgets.ButtonText(exportButtonRect, "CorvusSurgeryUI.Export".Translate()))
+                var exportButtonRect = new Rect(rightX - 66f, rect.y, 66f, buttonHeight);
+                if (CorvusStyle.DrawCompactButton(exportButtonRect, "CorvusSurgeryUI.Export".Translate().ToString()))
                 {
                     ShowExportDialog();
                 }
@@ -1733,8 +1803,8 @@ namespace CorvusSurgeryUI
             }
             
             // Import button
-            var importButtonRect = new Rect(rightX - 80f, rect.y, 80f, rect.height);
-            if (Widgets.ButtonText(importButtonRect, "CorvusSurgeryUI.Import".Translate()))
+            var importButtonRect = new Rect(rightX - 78f, rect.y, 78f, buttonHeight);
+            if (CorvusStyle.DrawCompactButton(importButtonRect, "CorvusSurgeryUI.Import".Translate().ToString()))
             {
                 ShowConsolidatedImportDialog();
             }
@@ -1743,8 +1813,8 @@ namespace CorvusSurgeryUI
             // Apply button (only if a preset is selected)
             if (selectedPreset != "(none)")
             {
-                var loadButtonRect = new Rect(rightX - 80f, rect.y, 80f, rect.height);
-                if (Widgets.ButtonText(loadButtonRect, "CorvusSurgeryUI.Apply".Translate()))
+                var loadButtonRect = new Rect(rightX - 78f, rect.y, 78f, buttonHeight);
+                if (CorvusStyle.DrawCompactButton(loadButtonRect, "CorvusSurgeryUI.Apply".Translate().ToString(), true))
                 {
                     LoadPresetForAllPawns(selectedPreset, eligiblePawns);
                 }
@@ -1752,8 +1822,8 @@ namespace CorvusSurgeryUI
             }
             
             // Preset dropdown (with validation indicator)
-            var dropdownRect = new Rect(rightX - 150f, rect.y, 150f, rect.height);
-            string dropdownText = selectedPreset;
+            var dropdownRect = new Rect(rightX - 170f, rect.y, 170f, buttonHeight);
+            string dropdownText = selectedPreset == "(none)" ? "Preset" : selectedPreset;
             
             // Add red X for invalid presets
             if (selectedPreset != "(none)")
@@ -1765,17 +1835,17 @@ namespace CorvusSurgeryUI
                 }
             }
             
-            if (Widgets.ButtonText(dropdownRect, dropdownText))
+            if (CorvusStyle.DrawCompactButton(dropdownRect, dropdownText))
             {
                 ShowPresetDropdown();
             }
             rightX = dropdownRect.x - 15f;
             
             // Apply label
-            var applyLabelRect = new Rect(rightX - 120f, rect.y, 120f, rect.height);
+            var applyLabelRect = new Rect(rect.x, rect.y + 2f, Mathf.Max(80f, rightX - rect.x - 8f), buttonHeight - 2f);
             Text.Font = GameFont.Small;
             Text.Anchor = TextAnchor.MiddleRight;
-            GUI.color = Color.gray;
+            GUI.color = CorvusStyle.TextSecondary;
             Widgets.Label(applyLabelRect, "CorvusSurgeryUI.ApplyToPawns".Translate(eligiblePawns.Count));
             GUI.color = Color.white;
             Text.Anchor = TextAnchor.UpperLeft;
@@ -2274,32 +2344,40 @@ namespace CorvusSurgeryUI
         private void DrawFilters(Rect rect, bool humanoidsOnly = false)
         {
             float currentY = rect.y;
+            const float quickSpacing = 10f;
+            float quickButtonWidth = 82f;
+            float availabilityWidth = 112f;
+            float totalQuickWidth = quickButtonWidth + availabilityWidth + quickButtonWidth + (quickSpacing * 2f);
+            float leftWidth = Mathf.Max(480f, rect.width - totalQuickWidth - 18f);
+            float dropdownWidth = Mathf.Clamp((leftWidth - (BUTTON_SPACING * 3f)) / 4f, 110f, 180f);
 
             // First row: Labels for dropdowns
-            var labelY = currentY;
-            var categoryLabelRect = new Rect(rect.x, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            var labelY = currentY + 2f;
+            var categoryLabelRect = new Rect(rect.x, labelY, dropdownWidth, LABEL_HEIGHT);
+            GUI.color = CorvusStyle.TextSecondary;
             Widgets.Label(categoryLabelRect, "CorvusSurgeryUI.Category".Translate());
 
-            var modLabelRect = new Rect(categoryLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            var modLabelRect = new Rect(categoryLabelRect.xMax + BUTTON_SPACING, labelY, dropdownWidth, LABEL_HEIGHT);
             Widgets.Label(modLabelRect, "CorvusSurgeryUI.Mod".Translate());
 
-            var targetLabelRect = new Rect(modLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            var targetLabelRect = new Rect(modLabelRect.xMax + BUTTON_SPACING, labelY, dropdownWidth, LABEL_HEIGHT);
             Widgets.Label(targetLabelRect, "CorvusSurgeryUI.Target".Translate());
 
-            var pawnLabelRect = new Rect(targetLabelRect.xMax + BUTTON_SPACING, labelY, DROPDOWN_WIDTH, LABEL_HEIGHT);
+            var pawnLabelRect = new Rect(targetLabelRect.xMax + BUTTON_SPACING, labelY, dropdownWidth, LABEL_HEIGHT);
             Widgets.Label(pawnLabelRect, "CorvusSurgeryUI.Pawn".Translate());
+            GUI.color = Color.white;
 
             // Second row: Dropdowns (reduced spacing)
-            currentY += LABEL_HEIGHT + 2f; // Minimal spacing between label and dropdown
+            currentY += LABEL_HEIGHT + 5f;
             var dropdownY = currentY;
 
             // Category dropdown
-            var categoryRect = new Rect(rect.x, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            var categoryRect = new Rect(rect.x, dropdownY, dropdownWidth, DROPDOWN_HEIGHT);
             string buttonText = selectedCategory == SurgeryCategory.All ? 
                 "CorvusSurgeryUI.All".Translate() : 
                 ("CorvusSurgeryUI.Category." + selectedCategory.ToString()).Translate();
             
-            if (Widgets.ButtonText(categoryRect, buttonText))
+            if (CorvusStyle.DrawCompactButton(categoryRect, buttonText))
             {
                 DrawCategoryDropdown(categoryRect);
             }
@@ -2309,9 +2387,9 @@ namespace CorvusSurgeryUI
             }
 
             // Mod dropdown
-            var modRect = new Rect(categoryRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            var modRect = new Rect(categoryRect.xMax + BUTTON_SPACING, dropdownY, dropdownWidth, DROPDOWN_HEIGHT);
             string modButtonText = selectedModFilter == "All" ? "CorvusSurgeryUI.All".Translate().ToString() : selectedModFilter;
-            if (Widgets.ButtonText(modRect, modButtonText))
+            if (CorvusStyle.DrawCompactButton(modRect, modButtonText))
             {
                 DrawModDropdown(modRect);
             }
@@ -2321,9 +2399,9 @@ namespace CorvusSurgeryUI
             }
 
             // Target dropdown
-            var targetRect = new Rect(modRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
+            var targetRect = new Rect(modRect.xMax + BUTTON_SPACING, dropdownY, dropdownWidth, DROPDOWN_HEIGHT);
             string targetButtonLabel = selectedTargetPart?.LabelCap ?? "All";
-            if (Widgets.ButtonText(targetRect, targetButtonLabel))
+            if (CorvusStyle.DrawCompactButton(targetRect, targetButtonLabel))
             {
                 DrawTargetDropdown(targetRect);
             }
@@ -2333,8 +2411,8 @@ namespace CorvusSurgeryUI
             }
 
             // Pawn dropdown
-            var pawnRect = new Rect(targetRect.xMax + BUTTON_SPACING, dropdownY, DROPDOWN_WIDTH, DROPDOWN_HEIGHT);
-            if (Widgets.ButtonText(pawnRect, pawn.LabelShort))
+            var pawnRect = new Rect(targetRect.xMax + BUTTON_SPACING, dropdownY, dropdownWidth, DROPDOWN_HEIGHT);
+            if (CorvusStyle.DrawCompactButton(pawnRect, pawn.LabelShort))
             {
                 DrawPawnDropdown(pawnRect, humanoidsOnly);
             }
@@ -2345,16 +2423,16 @@ namespace CorvusSurgeryUI
 
             // Quick filter buttons on the right
             float rightEdge = rect.xMax;
-            var implantsRect = new Rect(rightEdge - 80f, dropdownY, 80f, DROPDOWN_HEIGHT);
-            if (Widgets.ButtonText(implantsRect, "CorvusSurgeryUI.Implants".Translate()))
+            var implantsRect = new Rect(rightEdge - quickButtonWidth, dropdownY, quickButtonWidth, DROPDOWN_HEIGHT);
+            if (CorvusStyle.DrawCompactButton(implantsRect, "CorvusSurgeryUI.Implants".Translate().ToString(), selectedCategory == SurgeryCategory.Implants))
             {
                 selectedCategory = SurgeryCategory.Implants;
                 ApplyFilters();
             }
 
-            var availableRect = new Rect(implantsRect.x - 110f, dropdownY, 100f, DROPDOWN_HEIGHT);
+            var availableRect = new Rect(implantsRect.x - quickSpacing - availabilityWidth, dropdownY, availabilityWidth, DROPDOWN_HEIGHT);
             string availabilityButtonText = GetAvailabilityFilterText(availabilityFilter);
-            if (Widgets.ButtonText(availableRect, availabilityButtonText))
+            if (CorvusStyle.DrawCompactButton(availableRect, availabilityButtonText, availabilityFilter == AvailabilityFilter.ShowAvailableOnly))
             {
                 List<FloatMenuOption> availabilityOptions = new List<FloatMenuOption>();
                 foreach (AvailabilityFilter filter in Enum.GetValues(typeof(AvailabilityFilter)))
@@ -2368,8 +2446,8 @@ namespace CorvusSurgeryUI
                 Find.WindowStack.Add(new FloatMenu(availabilityOptions));
             }
 
-            var clearRect = new Rect(availableRect.x - 90f, dropdownY, 80f, DROPDOWN_HEIGHT);
-            if (Widgets.ButtonText(clearRect, "CorvusSurgeryUI.ClearAll".Translate()))
+            var clearRect = new Rect(availableRect.x - quickSpacing - quickButtonWidth, dropdownY, quickButtonWidth, DROPDOWN_HEIGHT);
+            if (CorvusStyle.DrawCompactButton(clearRect, "CorvusSurgeryUI.ClearAll".Translate().ToString()))
             {
                 ClearFilters();
             }
@@ -2514,18 +2592,24 @@ namespace CorvusSurgeryUI
 
         private void DrawSurgeryList(Rect rect)
         {
+            CorvusStyle.DrawPanel(rect);
+            Rect headerRect = new Rect(rect.x + 10f, rect.y + 6f, rect.width - 20f, 18f);
+            CorvusStyle.DrawSectionHeader(headerRect, "Surgeries");
+
+            Rect contentRect = new Rect(rect.x + 6f, rect.y + 28f, rect.width - 12f, rect.height - 34f);
+
             // Follow WeaponStats pattern for scroll views
-            GUI.BeginGroup(rect);
+            GUI.BeginGroup(contentRect);
             
-            var rowHeight = 70f;
+            var rowHeight = 86f;
             var rowSpacing = 5f;
             var tableHeight = (rowHeight + rowSpacing) * filteredSurgeries.Count;
             
             // Inner rect for scroll content
-            Rect inRect = new Rect(0, 0, rect.width - 20f, tableHeight + 100);
+            Rect inRect = new Rect(0, 0, contentRect.width - 20f, tableHeight + 100);
             
             // Scroll rect covers the entire group area
-            Rect scrollRect = new Rect(0, 0, rect.width, rect.height);
+            Rect scrollRect = new Rect(0, 0, contentRect.width, contentRect.height);
             Widgets.BeginScrollView(scrollRect, ref scrollPosition, inRect);
 
             float y = 0f;
@@ -2554,138 +2638,106 @@ namespace CorvusSurgeryUI
                 surgery.Tooltip = GetDetailedTooltip(surgery.Recipe, surgery.BodyPart);
             }
             
-            // Background with better visual feedback
-            Color bgColor = Color.black * 0.1f;
-            Widgets.DrawBoxSolid(rect, bgColor);
-            
-            // Outline for better definition
-            Widgets.DrawBox(rect, 1);
-
-            // Left column - Surgery info
-            var leftColumnWidth = rect.width * 0.45f;
-            
-            // Surgery name
-            Rect nameRect = new Rect(rect.x + 15f, rect.y + 5f, leftColumnWidth - 20f, 20f);
-            Widgets.Label(nameRect, surgery.Label);
-
-            // Body part info
-            if (surgery.BodyPart != null)
+            bool hover = Mouse.IsOver(rect);
+            bool canQueue = !surgery.IsDisabled || allowQueueingDisabled;
+            Color statusColor;
+            string statusText;
+            if (!surgery.IsDisabled)
             {
-                Rect bodyPartRect = new Rect(nameRect.x, nameRect.yMax + 2f, leftColumnWidth - 10f, 22f);
-                GUI.color = Color.gray;
-                Widgets.Label(bodyPartRect, "CorvusSurgeryUI.TargetBodyPart".Translate(surgery.BodyPart.LabelCap));
-                GUI.color = Color.white;
+                statusColor = CorvusStyle.Success;
+                statusText = "Ready";
             }
-
-            // Mod source badge
-            var modName = surgery.Recipe?.modContentPack?.Name ?? "Core";
-            if (modName != "Core")
+            else if (allowQueueingDisabled)
             {
-                Rect modBadgeRect = new Rect(nameRect.x, rect.yMax - 18f, leftColumnWidth - 10f, 15f);
-                GUI.color = Color.cyan;
-                Text.Font = GameFont.Tiny;
-                Widgets.Label(modBadgeRect, $"[{modName}]");
-                Text.Font = GameFont.Small;
-                GUI.color = Color.white;
-            }
-
-            // Middle column - Category and requirements
-            var middleColumnX = rect.x + leftColumnWidth;
-            var middleColumnWidth = rect.width * 0.3f;
-            
-            Rect categoryRect = new Rect(middleColumnX, rect.y + 5f, middleColumnWidth, 20f);
-            GUI.color = GetCategoryColor(surgery.Category);
-            Widgets.Label(categoryRect, ("CorvusSurgeryUI.Category." + surgery.Category.ToString()).Translate());
-            GUI.color = Color.white;
-
-            Rect reqRect = new Rect(middleColumnX, categoryRect.yMax + 2f, middleColumnWidth, rect.height - categoryRect.height - 10f);
-            Text.Font = GameFont.Tiny;
-            Widgets.Label(reqRect, surgery.Requirements);
-            Text.Font = GameFont.Small;
-
-            // Right column - Warnings and button
-            var rightColumnX = middleColumnX + middleColumnWidth;
-            var rightColumnWidth = rect.width * 0.25f;
-
-            // Existing implant warning
-            if (!string.IsNullOrEmpty(surgery.ImplantWarning))
-            {
-                Rect warningRect = new Rect(rightColumnX, rect.y + 5f, rightColumnWidth, 30f);
-                GUI.color = surgery.ImplantWarningColor;
-                Text.Font = GameFont.Tiny;
-                Widgets.Label(warningRect, "⚠ " + surgery.ImplantWarning);
-                Text.Font = GameFont.Small;
-                GUI.color = Color.white;
-            }
-
-            // Add to queue button
-            Rect buttonRect = new Rect(rightColumnX, rect.yMax - 30f, rightColumnWidth - 5f, 25f);
-            string buttonText;
-            bool canQueue;
-            
-            if (surgery.IsDisabled && !allowQueueingDisabled)
-            {
-                buttonText = "Unavailable";
-                canQueue = false;
+                statusColor = CorvusStyle.Warning;
+                statusText = "Blocked";
             }
             else
             {
-                buttonText = "Queue";
-                canQueue = true;
+                statusColor = CorvusStyle.Danger;
+                statusText = "Locked";
             }
-            
+
+            CorvusStyle.DrawRow(rect, hover, false, surgery.IsDisabled && allowQueueingDisabled);
+
+            var contentRect = rect.ContractedBy(10f);
+            var leftColumnWidth = contentRect.width * 0.43f;
+            var middleColumnWidth = contentRect.width * 0.30f;
+            var rightColumnWidth = contentRect.width - leftColumnWidth - middleColumnWidth - 14f;
+
+            var leftRect = new Rect(contentRect.x + 8f, contentRect.y + 6f, leftColumnWidth - 8f, contentRect.height - 12f);
+            var middleRect = new Rect(leftRect.xMax + 8f, contentRect.y + 4f, middleColumnWidth, contentRect.height - 8f);
+            var rightRect = new Rect(middleRect.xMax + 6f, contentRect.y + 4f, rightColumnWidth, contentRect.height - 8f);
+
+            Rect accentBarRect = new Rect(rect.x + 2f, rect.y + 2f, 3f, rect.height - 4f);
+            Widgets.DrawBoxSolid(accentBarRect, statusColor);
+
+            var modName = surgery.Recipe?.modContentPack?.Name ?? "Core";
+
+            Rect nameRect = new Rect(leftRect.x, leftRect.y, leftRect.width, 18f);
+            CorvusStyle.DrawPrimaryText(nameRect, surgery.Label);
+
+            if (surgery.BodyPart != null)
+            {
+                Rect bodyPartRect = new Rect(leftRect.x, nameRect.yMax + 4f, leftRect.width, 14f);
+                CorvusStyle.DrawSubtleText(bodyPartRect, "Target: " + surgery.BodyPart.LabelCap);
+            }
+
+            Rect modBadgeRect = new Rect(leftRect.x, leftRect.yMax - 16f, 120f, 14f);
+            CorvusStyle.DrawChip(modBadgeRect, modName == "Core" ? "CORE" : modName, modName != "Core");
+
+            Rect categoryRect = new Rect(middleRect.x, middleRect.y, middleRect.width, 14f);
+            CorvusStyle.DrawSubtleText(categoryRect, ("CorvusSurgeryUI.Category." + surgery.Category.ToString()).Translate().ToString().ToUpperInvariant());
+
+            Rect reqRect = new Rect(middleRect.x, categoryRect.yMax + 6f, middleRect.width, 28f);
+            Text.Font = GameFont.Tiny;
+            GUI.color = CorvusStyle.TextSecondary;
+            Widgets.Label(reqRect, surgery.Requirements.NullOrEmpty() ? "No extra requirements" : surgery.Requirements);
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
+
+            Rect statusRect = new Rect(rightRect.x, rightRect.y, 64f, 18f);
+            CorvusStyle.DrawStatusPill(statusRect, statusText, statusColor);
+
+            if (!string.IsNullOrEmpty(surgery.ImplantWarning))
+            {
+                Rect warningRect = new Rect(rightRect.x, statusRect.yMax + 6f, rightRect.width, 24f);
+                GUI.color = surgery.ImplantWarningColor;
+                Widgets.Label(warningRect, "Warning: " + surgery.ImplantWarning);
+                GUI.color = Color.white;
+            }
+
+            Rect buttonRect = new Rect(rightRect.xMax - 32f, rightRect.yMax - 24f, 28f, 24f);
             GUI.enabled = canQueue;
-            if (Widgets.ButtonText(buttonRect, buttonText))
+            CorvusStyle.DrawCompactButtonVisual(buttonRect, "+", !surgery.IsDisabled);
+            if (Widgets.ButtonInvisible(buttonRect))
             {
                 if (surgery.IsDisabled && allowQueueingDisabled)
                 {
-                    // Use the force queue action for disabled surgeries
                     surgery.ForceQueueAction?.Invoke();
                 }
                 else
                 {
-                    // Use the normal action for available surgeries
                     surgery.Action?.Invoke();
                 }
             }
             GUI.enabled = true;
 
-            // Status indicator
-            Rect statusRect = new Rect(rect.x + 2f, rect.y + (rect.height / 2) - 4f, 8f, 8f);
-            Color statusColor;
-            if (!surgery.IsDisabled)
-            {
-                statusColor = Color.green; // Available
-            }
-            else if (allowQueueingDisabled)
-            {
-                statusColor = Color.yellow; // Disabled but can be queued
-            }
-            else
-            {
-                statusColor = Color.red; // Disabled and cannot be queued
-            }
-            Widgets.DrawBoxSolid(statusRect, statusColor);
+            TooltipHandler.TipRegion(buttonRect, canQueue
+                ? "Add this surgery to the queue."
+                : "This surgery cannot currently be added.");
 
             // Tooltip with comprehensive info
             if (Mouse.IsOver(rect))
             {
-                string statusText;
-                if (!surgery.IsDisabled)
-                {
-                    statusText = "Available";
-                }
-                else if (allowQueueingDisabled)
-                {
-                    statusText = "Not Available (but can be queued for later)";
-                }
-                else
-                {
-                    statusText = "Not Available";
-                }
-                
-                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {statusText}";
-                TooltipHandler.TipRegion(rect, tooltipText);
+                string tooltipStatus = !surgery.IsDisabled
+                    ? "Available"
+                    : allowQueueingDisabled
+                        ? "Not Available (but can be queued for later)"
+                        : "Not Available";
+
+                var tooltipText = $"{surgery.Tooltip}\n\nMod: {modName}\nStatus: {tooltipStatus}";
+                TooltipHandler.TipRegion(new Rect(rect.x, rect.y, rect.width - 38f, rect.height), tooltipText);
             }
         }
         
@@ -3110,6 +3162,7 @@ namespace CorvusSurgeryUI
 
         private void DrawQueuedBills(Rect rect, bool showPresetSection = true)
         {
+            CorvusStyle.DrawPanel(rect);
             float queueStartY = rect.y;
             float queueHeight = rect.height;
             
@@ -3126,31 +3179,34 @@ namespace CorvusSurgeryUI
             }
             
             // Section header
-            Text.Font = GameFont.Medium;
-            var headerRect = new Rect(rect.x, queueStartY, rect.width - 190f, 25f); // Increased from 160f to accommodate wider buttons
-            Widgets.Label(headerRect, "CorvusSurgeryUI.SurgeryQueue".Translate(queuedBills.Count));
+            var headerRect = new Rect(rect.x + 10f, queueStartY + 4f, rect.width - 220f, 16f);
+            CorvusStyle.DrawSectionHeader(headerRect, "Queue");
+            var headerCountRect = new Rect(rect.x + 10f, queueStartY + 21f, 260f, 18f);
+            Text.Font = GameFont.Tiny;
+            GUI.color = CorvusStyle.TextSecondary;
+            Widgets.Label(headerCountRect, "CorvusSurgeryUI.SurgeryQueue".Translate(queuedBills.Count));
+            GUI.color = Color.white;
             Text.Font = GameFont.Small;
             
             // Bulk action buttons
             if (queuedBills.Count > 0)
             {
-                var suspendAllRect = new Rect(rect.xMax - 185f, queueStartY, 85f, 20f); // Increased width from 70f to 85f
-                if (Widgets.ButtonText(suspendAllRect, "CorvusSurgeryUI.SuspendAll".Translate()))
+                var suspendAllRect = new Rect(rect.xMax - 185f, queueStartY + 8f, 85f, 20f);
+                if (CorvusStyle.DrawCompactButton(suspendAllRect, "Suspend"))
                 {
                     SuspendAllBills();
                 }
                 
-                var activateAllRect = new Rect(rect.xMax - 95f, queueStartY, 90f, 20f); // Increased width from 75f to 90f
-                if (Widgets.ButtonText(activateAllRect, "CorvusSurgeryUI.ActivateAll".Translate()))
+                var activateAllRect = new Rect(rect.xMax - 95f, queueStartY + 8f, 90f, 20f);
+                if (CorvusStyle.DrawCompactButton(activateAllRect, "Activate", true))
                 {
                     ActivateAllBills();
                 }
             }
             
             // Queue area
-            var queueRect = new Rect(rect.x, queueStartY + 30f, rect.width, queueHeight - 30f);
-            Widgets.DrawBoxSolid(queueRect, Color.black * 0.2f);
-            Widgets.DrawBox(queueRect, 1);
+            var queueRect = new Rect(rect.x + 6f, queueStartY + 46f, rect.width - 12f, queueHeight - 52f);
+            CorvusStyle.DrawInset(queueRect);
             
             if (queuedBills.Count == 0)
             {
@@ -3165,8 +3221,8 @@ namespace CorvusSurgeryUI
             HandleBillDragAndDrop(queueRect);
             
             // Draw queued bills with drag-and-drop support
-            float billHeight = 30f;
-            float billSpacing = 2f;
+            float billHeight = 32f;
+            float billSpacing = 3f;
             var billsViewRect = new Rect(0f, 0f, queueRect.width - 20f, (billHeight + billSpacing) * queuedBills.Count);
             
             Widgets.BeginScrollView(queueRect, ref billScrollPosition, billsViewRect);
@@ -3181,7 +3237,7 @@ namespace CorvusSurgeryUI
                 if (dropTargetIndex == i && isDragging)
                 {
                     var dropIndicatorRect = new Rect(billRect.x, billRect.y - 2f, billRect.width, 4f);
-                    Widgets.DrawBoxSolid(dropIndicatorRect, Color.cyan);
+                    Widgets.DrawBoxSolid(dropIndicatorRect, CorvusStyle.Accent);
                 }
                 
                 // Skip drawing the dragged item at its original position
@@ -3199,7 +3255,7 @@ namespace CorvusSurgeryUI
             if (dropTargetIndex == queuedBills.Count && isDragging)
             {
                 var dropIndicatorRect = new Rect(5f, y - 2f, billsViewRect.width - 10f, 4f);
-                Widgets.DrawBoxSolid(dropIndicatorRect, Color.cyan);
+                Widgets.DrawBoxSolid(dropIndicatorRect, CorvusStyle.Accent);
             }
             
             Widgets.EndScrollView();
@@ -3221,16 +3277,18 @@ namespace CorvusSurgeryUI
 
         private void DrawPresetSection(Rect rect)
         {
+            CorvusStyle.DrawInset(rect);
+
             // Save Preset button
-            var saveButtonRect = new Rect(rect.x, rect.y, 100f, rect.height);
-            if (Widgets.ButtonText(saveButtonRect, "CorvusSurgeryUI.SavePreset".Translate()))
+            var saveButtonRect = new Rect(rect.x + 4f, rect.y + 2f, 78f, rect.height - 4f);
+            if (CorvusStyle.DrawCompactButton(saveButtonRect, "Save", true))
             {
                 ShowSavePresetDialog();
             }
             
             // Preset dropdown (with validation indicator)
-            var dropdownRect = new Rect(saveButtonRect.xMax + 10f, rect.y, 150f, rect.height);
-            string dropdownText = selectedPreset;
+            var dropdownRect = new Rect(saveButtonRect.xMax + 8f, rect.y + 2f, 160f, rect.height - 4f);
+            string dropdownText = selectedPreset == "(none)" ? "Preset" : selectedPreset;
             
             // Add red X for invalid presets
             if (selectedPreset != "(none)")
@@ -3242,7 +3300,7 @@ namespace CorvusSurgeryUI
                 }
             }
             
-            if (Widgets.ButtonText(dropdownRect, dropdownText))
+            if (CorvusStyle.DrawCompactButton(dropdownRect, dropdownText))
             {
                 ShowPresetDropdown();
             }
@@ -3250,16 +3308,16 @@ namespace CorvusSurgeryUI
             // Apply button (only if a preset is selected)
             if (selectedPreset != "(none)")
             {
-                var loadButtonRect = new Rect(dropdownRect.xMax + 10f, rect.y, 80f, rect.height);
-                if (Widgets.ButtonText(loadButtonRect, "CorvusSurgeryUI.Apply".Translate()))
+                var loadButtonRect = new Rect(dropdownRect.xMax + 8f, rect.y + 2f, 70f, rect.height - 4f);
+                if (CorvusStyle.DrawCompactButton(loadButtonRect, "Apply"))
                 {
                     LoadPreset(selectedPreset);
                 }
             }
             
             // Single Import button
-            var importButtonRect = new Rect(dropdownRect.xMax + (selectedPreset != "(none)" ? 95f : 15f), rect.y, 80f, rect.height);
-            if (Widgets.ButtonText(importButtonRect, "CorvusSurgeryUI.Import".Translate()))
+            var importButtonRect = new Rect(dropdownRect.xMax + (selectedPreset != "(none)" ? 86f : 8f), rect.y + 2f, 74f, rect.height - 4f);
+            if (CorvusStyle.DrawCompactButton(importButtonRect, "Import"))
             {
                 ShowConsolidatedImportDialog();
             }
@@ -3267,8 +3325,8 @@ namespace CorvusSurgeryUI
             // Export button (only if a preset is selected)
             if (selectedPreset != "(none)")
             {
-                var exportButtonRect = new Rect(importButtonRect.xMax + 10f, rect.y, 60f, rect.height);
-                if (Widgets.ButtonText(exportButtonRect, "CorvusSurgeryUI.Export".Translate()))
+                var exportButtonRect = new Rect(importButtonRect.xMax + 8f, rect.y + 2f, 70f, rect.height - 4f);
+                if (CorvusStyle.DrawCompactButton(exportButtonRect, "Export"))
                 {
                     ShowExportDialog();
                 }
@@ -3319,64 +3377,37 @@ namespace CorvusSurgeryUI
 
         private void DrawBillItem(Rect billRect, Bill_Medical bill, int index)
         {
-            // Background - different color for suspended bills
-            Color bgColor;
-            if (bill.suspended)
-            {
-                bgColor = index % 2 == 0 ? Color.red * 0.2f : Color.red * 0.3f; // Reddish for suspended
-            }
-            else
-            {
-                bgColor = index % 2 == 0 ? Color.black * 0.1f : Color.black * 0.2f; // Normal colors
-            }
-            Widgets.DrawBoxSolid(billRect, bgColor);
-            
-            // Bill info
-            var labelRect = new Rect(billRect.x + 5f, billRect.y + 5f, billRect.width - 160f, billRect.height - 10f);
+            bool hover = Mouse.IsOver(billRect);
+            CorvusStyle.DrawRow(billRect, hover, false, bill.suspended);
+
+            var labelRect = new Rect(billRect.x + 30f, billRect.y + 4f, billRect.width - 202f, 20f);
             string billLabel = bill.LabelCap;
             if (bill.Part != null)
             {
                 billLabel += $" ({bill.Part.LabelCap})";
             }
-            
-            // Add suspension indicator to label
-            if (bill.suspended)
-            {
-                GUI.color = Color.yellow;
-                billLabel = "⏸ " + billLabel + " (SUSPENDED)";
-            }
-            else
-            {
-                GUI.color = Color.white;
-            }
-            
-            Widgets.Label(labelRect, billLabel);
-            GUI.color = Color.white;
-            
-            // Suspend/Activate button
-            var suspendButtonRect = new Rect(billRect.xMax - 155f, billRect.y + 3f, 70f, billRect.height - 6f);
-            string suspendButtonText = bill.suspended ? "Activate" : "Suspend";
-            Color suspendButtonColor = bill.suspended ? Color.green : Color.yellow;
-            
-            GUI.color = suspendButtonColor;
-            if (Widgets.ButtonText(suspendButtonRect, suspendButtonText))
+
+            Color stateColor = bill.suspended ? CorvusStyle.Warning : CorvusStyle.Success;
+            Widgets.DrawBoxSolid(new Rect(billRect.x + 3f, billRect.y + 3f, 3f, billRect.height - 6f), stateColor);
+            CorvusStyle.DrawPrimaryText(labelRect, billLabel);
+
+            var priorityRect = new Rect(billRect.x + 8f, billRect.y + 3f, 18f, billRect.height - 6f);
+            CorvusStyle.DrawMonoText(priorityRect, (index + 1).ToString("D2"), bill.suspended ? CorvusStyle.TextMuted : CorvusStyle.Accent, TextAnchor.MiddleCenter);
+
+            var stateRect = new Rect(billRect.xMax - 178f, billRect.y + 6f, 64f, 18f);
+            CorvusStyle.DrawStatusPill(stateRect, bill.suspended ? "Paused" : "Live", stateColor);
+
+            var suspendButtonRect = new Rect(billRect.xMax - 106f, billRect.y + 3f, 48f, billRect.height - 6f);
+            if (CorvusStyle.DrawCompactButton(suspendButtonRect, bill.suspended ? "ON" : "OFF", bill.suspended))
             {
                 ToggleBillSuspension(index);
             }
-            GUI.color = Color.white;
-            
-            // Remove button
-            var removeButtonRect = new Rect(billRect.xMax - 80f, billRect.y + 3f, 75f, billRect.height - 6f);
-            if (Widgets.ButtonText(removeButtonRect, "CorvusSurgeryUI.Remove".Translate()))
+
+            var removeButtonRect = new Rect(billRect.xMax - 52f, billRect.y + 3f, 46f, billRect.height - 6f);
+            if (CorvusStyle.DrawCompactButton(removeButtonRect, "X"))
             {
                 RemoveBill(index);
             }
-            
-            // Priority indicators
-            var priorityRect = new Rect(billRect.xMax - 170f, billRect.y + 5f, 50f, billRect.height - 10f);
-            GUI.color = bill.suspended ? Color.gray : Color.yellow;
-            Widgets.Label(priorityRect, $"#{index + 1}");
-            GUI.color = Color.white;
         }
 
         private void ToggleBillSuspension(int index)
@@ -3916,7 +3947,7 @@ namespace CorvusSurgeryUI
             return null;
         }
 
-        public void DrawBodyDiagram(Rect drawArea, Pawn pawn)
+        public void DrawBodyDiagram(Rect drawArea, Pawn pawn, BodyPartRegion selectedBodyPart = null)
         {
             // Calculate scaling to fit the draw area while maintaining aspect ratio
             float scaleX = drawArea.width / svgWidth;
@@ -3933,17 +3964,16 @@ namespace CorvusSurgeryUI
             var centeredArea = new Rect(drawArea.x + offsetX, drawArea.y + offsetY, scaledWidth, scaledHeight);
             
             // Draw background
-            Widgets.DrawBoxSolid(centeredArea, Color.black * 0.1f);
-            Widgets.DrawBox(centeredArea, 1);
+            CorvusStyle.DrawInset(centeredArea);
             
             // Draw body parts
             foreach (var bodyPart in bodyParts.Values)
             {
-                DrawBodyPart(bodyPart, centeredArea, scale, pawn);
+                DrawBodyPart(bodyPart, centeredArea, scale, pawn, selectedBodyPart != null && bodyPart.SvgId == selectedBodyPart.SvgId);
             }
         }
 
-        private void DrawBodyPart(BodyPartRegion bodyPart, Rect drawArea, float scale, Pawn pawn)
+        private void DrawBodyPart(BodyPartRegion bodyPart, Rect drawArea, float scale, Pawn pawn, bool selected)
         {
             // Scale and position the body part rectangle
             var scaledRect = new Rect(
@@ -3955,15 +3985,23 @@ namespace CorvusSurgeryUI
 
             // Determine body part state for coloring
             Color partColor = GetBodyPartColor(bodyPart, pawn);
+            bool hover = Mouse.IsOver(scaledRect);
             
             // Draw the body part
             Widgets.DrawBoxSolid(scaledRect, partColor);
-            Widgets.DrawBox(scaledRect, 1);
+            Widgets.DrawBox(scaledRect, selected ? 2 : 1);
+            if (selected)
+            {
+                Widgets.DrawBoxSolid(new Rect(scaledRect.x - 2f, scaledRect.y - 2f, scaledRect.width + 4f, 2f), CorvusStyle.Accent);
+                Widgets.DrawBoxSolid(new Rect(scaledRect.x - 2f, scaledRect.yMax, scaledRect.width + 4f, 2f), CorvusStyle.Accent);
+                Widgets.DrawBoxSolid(new Rect(scaledRect.x - 2f, scaledRect.y - 2f, 2f, scaledRect.height + 4f), CorvusStyle.Accent);
+                Widgets.DrawBoxSolid(new Rect(scaledRect.xMax, scaledRect.y - 2f, 2f, scaledRect.height + 4f), CorvusStyle.Accent);
+            }
             
             // Add hover effect
-            if (Mouse.IsOver(scaledRect))
+            if (hover)
             {
-                Widgets.DrawHighlight(scaledRect);
+                Widgets.DrawBoxSolid(scaledRect.ContractedBy(1f), new Color(1f, 1f, 1f, 0.06f));
                 
                 // Show tooltip with body part info
                 string tooltip = GetBodyPartTooltip(bodyPart, pawn);
@@ -4031,16 +4069,16 @@ namespace CorvusSurgeryUI
 
         private Color GetBodyPartColor(BodyPartRegion bodyPart, Pawn pawn)
         {
-            if (pawn?.health?.hediffSet == null) return Color.gray * 0.3f;
+            if (pawn?.health?.hediffSet == null) return new Color(0.17f, 0.19f, 0.22f, 1f);
             
             // Find the actual body part record
             var actualBodyPart = FindBodyPartRecord(bodyPart, pawn);
-            if (actualBodyPart == null) return Color.gray * 0.3f;
+            if (actualBodyPart == null) return new Color(0.17f, 0.19f, 0.22f, 1f);
             
             // Check if missing
             if (pawn.health.hediffSet.PartIsMissing(actualBodyPart))
             {
-                return Color.red * 0.4f; // Missing parts in red
+                return new Color(0.33f, 0.15f, 0.16f, 1f);
             }
             
             // Check for prosthetics/bionics
@@ -4053,9 +4091,9 @@ namespace CorvusSurgeryUI
                 // Check if bionic (high-tech)
                 if (prosthetics.Any(p => p.def.spawnThingOnRemoved.techLevel >= TechLevel.Spacer))
                 {
-                    return Color.cyan * 0.4f; // Bionics in cyan
+                    return new Color(0.07f, 0.28f, 0.34f, 1f);
                 }
-                return Color.yellow * 0.4f; // Prosthetics in yellow
+                return new Color(0.27f, 0.22f, 0.10f, 1f);
             }
             
             // Check health status
@@ -4063,14 +4101,14 @@ namespace CorvusSurgeryUI
             
             if (healthPercent < 0.5f)
             {
-                return Color.red * 0.3f; // Injured parts
+                return new Color(0.31f, 0.14f, 0.15f, 1f);
             }
             else if (healthPercent < 0.8f)
             {
-                return Color.yellow * 0.3f; // Slightly injured
+                return new Color(0.25f, 0.20f, 0.10f, 1f);
             }
             
-            return Color.green * 0.3f; // Healthy parts
+            return new Color(0.14f, 0.18f, 0.20f, 1f);
         }
 
         private string GetBodyPartTooltip(BodyPartRegion bodyPart, Pawn pawn)
